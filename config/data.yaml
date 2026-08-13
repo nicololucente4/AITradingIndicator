@@ -1,0 +1,40 @@
+# Configurazione della sorgente dati utilizzata durante lo sviluppo.
+data_provider: file
+
+# Modalità iniziale: elaborazione di dati storici locali.
+operating_mode: historical
+
+# Timezone interna standard del progetto.
+internal_timezone: UTC
+
+# Colonne minime richieste dal validatore.
+required_columns:
+  - timestamp
+  - open
+  - high
+  - low
+  - close
+  - volume
+
+# Configurazione iniziale del mercato di studio.
+market:
+  family: forex
+  symbol: EURUSD
+  operational_timeframe: M15
+  context_timeframe: H1
+
+# Percorsi dei dataset locali.
+paths:
+  raw_data: data/raw
+  processed_data: data/processed
+  feature_data: data/features
+  sample_data: data/sample
+
+# Regole iniziali di validazione.
+validation:
+  reject_empty_dataset: true
+  reject_duplicate_timestamps: true
+  reject_unsorted_timestamps: true
+  reject_negative_volume: true
+  reject_non_positive_prices: true
+  reject_invalid_ohlc_relationships: true
