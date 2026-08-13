@@ -157,9 +157,13 @@ def test_non_numeric_price_is_rejected() -> None:
     # Crea un dataset corretto.
     dataframe = create_valid_dataframe()
 
+    # Converte la colonna Close in tipo object per simulare correttamente
+    # un dato testuale proveniente, per esempio, da un file CSV non valido.
+    dataframe["close"] = dataframe["close"].astype("object")
+
     # Inserisce un valore che non può essere convertito in numero.
     dataframe.loc[1, "close"] = "invalid"
 
-    # Verifica che il valore non numerico venga rilevato.
+    # Verifica che il validatore rilevi il valore non numerico.
     with pytest.raises(OHLCVValidationError, match="non validi"):
         validate_ohlcv(dataframe)
