@@ -1,0 +1,19 @@
+# Timeframe operativo utilizzato per generare i segnali.
+operational_timeframe:
+  name: M15
+  minutes: 15
+
+# Timeframe superiore utilizzato come contesto.
+context_timeframe:
+  name: H1
+  minutes: 60
+
+# Il timestamp rappresenta l'apertura della candela.
+timestamp_semantics: candle_open
+
+# Regole di sicurezza contro look-ahead e candele incomplete.
+aggregation:
+  require_complete_source_candles: true
+  drop_incomplete_buckets: true
+  reject_missing_source_candles: true
+  confirmed_candles_only: true

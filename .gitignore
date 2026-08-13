@@ -59,3 +59,7 @@ mlruns/
 # File temporanei.
 *.tmp
 temp/
+
+# Report generati automaticamente.
+reports/*
+!reports/.gitkeep
