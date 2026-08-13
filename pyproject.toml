@@ -1,0 +1,36 @@
+[project]
+name = "ai-trading-indicator"
+version = "0.1.0"
+description = "Sistema educativo per backtest e live paper trading"
+requires-python = ">=3.11,<3.12"
+
+[tool.pytest.ini_options]
+# Indica a Pytest dove cercare i test automatici.
+testpaths = ["tests"]
+
+# Aggiunge la cartella principale al percorso Python.
+pythonpath = ["."]
+
+# Mostra un riepilogo esteso degli eventuali errori.
+addopts = "-ra"
+
+[tool.ruff]
+# Applica i controlli al codice Python del progetto.
+target-version = "py311"
+
+# Imposta la lunghezza massima consigliata delle righe.
+line-length = 100
+
+[tool.ruff.lint]
+# E: errori di stile.
+# F: errori logici comuni.
+# I: ordinamento degli import.
+# B: possibili bug.
+select = ["E", "F", "I", "B"]
+
+[tool.ruff.format]
+# Usa virgolette doppie durante la formattazione.
+quote-style = "double"
+
+# Mantiene l'indentazione tramite spazi.
+indent-style = "space"

@@ -1,0 +1,14 @@
+# Gestione dati e calcolo numerico.
+pandas
+numpy
+pyarrow
+
+# Configurazioni YAML.
+PyYAML
+
+# Test automatici.
+pytest
+pytest-cov
+
+# Controllo qualità e formattazione del codice.
+ruff

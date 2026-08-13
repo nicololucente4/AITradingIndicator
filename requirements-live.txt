@@ -1,0 +1,7 @@
+# Questo file sarà utilizzato successivamente sul PC di test.
+# Non installare queste dipendenze sul PC di sviluppo in questa fase.
+
+-r requirements-dev.txt
+
+# Connettore ufficiale MetaTrader 5.
+MetaTrader5
