@@ -1,0 +1,44 @@
+# Versione della logica di generazione dei segnali.
+signal_engine_version: "0.1.0"
+
+# Generatore iniziale senza machine learning.
+signal_source: baseline_rules
+
+# Timeframe operativo espresso in minuti.
+timeframe_minutes: 15
+
+# I segnali sono prodotti solamente dopo la chiusura della candela.
+confirmed_candles_only: true
+
+# Stati ammessi.
+allowed_signals:
+  - LONG
+  - SHORT
+  - NO_TRADE
+
+# Filtro iniziale basato sulla volatilità.
+volatility_filter:
+  minimum_atr_percentage: 0.0001
+  maximum_atr_percentage: 0.05
+
+# Conferma minima del momentum.
+momentum_filter:
+  minimum_absolute_return: 0.0
+
+# Regole direzionali della baseline.
+rules:
+  long:
+    ema_fast_above_ema_slow: true
+    positive_ema_distance: true
+    positive_return: true
+
+  short:
+    ema_fast_below_ema_slow: true
+    negative_ema_distance: true
+    negative_return: true
+
+# Protezioni operative.
+safety:
+  no_signal_during_warmup: true
+  no_future_data: true
+  immutable_confirmed_signals: true
