@@ -1,0 +1,61 @@
+# Ambiente virtuale Python locale.
+.venv/
+
+# Cache generate automaticamente da Python.
+__pycache__/
+*.py[cod]
+
+# Cache e risultati dei test.
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Cache dei notebook Jupyter.
+.ipynb_checkpoints/
+
+# Cache degli strumenti di linting.
+.ruff_cache/
+
+# Variabili d'ambiente e possibili credenziali.
+.env
+.env.*
+
+# Mantiene versionabile il file di esempio.
+!.env.example
+
+# File generati da Windows.
+Thumbs.db
+Desktop.ini
+
+# Configurazioni locali di VS Code.
+.vscode/settings.json
+
+# Log generati dall'applicazione.
+*.log
+logs/
+
+# Modelli addestrati e artefatti locali.
+models/*
+!models/.gitkeep
+
+# Dataset locali e potenzialmente voluminosi.
+data/raw/*
+data/processed/*
+data/features/*
+
+# Mantiene versionabili i file segnaposto.
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/features/.gitkeep
+
+# Database locali del paper trading.
+*.db
+*.sqlite
+*.sqlite3
+
+# Esperimenti MLflow locali.
+mlruns/
+
+# File temporanei.
+*.tmp
+temp/
