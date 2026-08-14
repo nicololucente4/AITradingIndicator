@@ -1,0 +1,40 @@
+# Versione della configurazione Live Paper.
+live_paper_version: "0.1.0"
+
+# Su questo PC viene utilizzato esclusivamente il provider file.
+data_provider: file_polling
+
+# Modalità esclusivamente simulata.
+operating_mode: live_paper
+
+# Configurazione del timeframe.
+market:
+  symbol: EURUSD
+  timeframe: M15
+  timeframe_minutes: 15
+  timezone: UTC
+
+# File simulato che rappresenta il feed aggiornato.
+file_provider:
+  path: data/sample/EURUSD_M15_sample.csv
+
+# Frequenza futura del polling.
+polling:
+  interval_seconds: 10
+  emit_closed_candles_only: true
+  reject_duplicate_candles: true
+
+# Modello utilizzato.
+model:
+  version: gradient_boosting_0.1.0
+  allowed_statuses:
+    - CANDIDATE
+    - APPROVED
+
+# Protezioni.
+safety:
+  read_only_data_provider: true
+  order_functions_enabled: false
+  real_orders_enabled: false
+  demo_orders_enabled: false
+  paper_trading_only: true
