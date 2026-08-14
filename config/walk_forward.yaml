@@ -1,0 +1,41 @@
+# Versione della configurazione Walk-Forward.
+walk_forward_version: "0.1.0"
+
+# Metodo di validazione temporale.
+validation_type: expanding_walk_forward
+
+# Configurazione delle finestre.
+windows:
+  initial_training_rows: 200
+  test_rows: 40
+  step_rows: 40
+
+  # Numero di righe escluse tra training e test.
+  gap_rows: 2
+
+# Configurazione del modello addestrato in ogni finestra.
+model:
+  type: logistic_regression
+  maximum_iterations: 1000
+  random_state: 42
+  class_weight: balanced
+
+# File di input.
+input:
+  features: data/features/sample_ml_features.parquet
+  target: data/features/sample_ml_target.parquet
+  metadata: data/features/sample_ml_metadata.parquet
+
+# Artefatti generati.
+output:
+  predictions: reports/walk_forward_predictions.csv
+  fold_metrics: reports/walk_forward_folds.csv
+  summary: reports/walk_forward_summary.json
+
+# Regole di sicurezza.
+safety:
+  shuffle: false
+  expanding_training_window: true
+  scaler_refitted_on_each_fold: true
+  future_data_used_for_training: false
+  paper_trading_only: true
