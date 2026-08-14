@@ -1,0 +1,56 @@
+# Versione della configurazione Machine Learning.
+model_config_version: "0.1.0"
+
+# Primo modello baseline del progetto.
+model:
+  type: logistic_regression
+  version: "logistic_baseline_0.1.0"
+
+# Divisione cronologica del dataset.
+temporal_split:
+  test_size_percentage: 0.20
+  shuffle: false
+  test_after_training: true
+
+# Configurazione della regressione logistica.
+training:
+  maximum_iterations: 1000
+  random_state: 42
+  class_weight: balanced
+
+# Classi prodotte dal modello.
+classes:
+  - LONG
+  - SHORT
+  - NO_TRADE
+
+# Feature autorizzate.
+features:
+  - return_1
+  - ema_fast
+  - ema_slow
+  - ema_distance_pct
+  - true_range
+  - atr
+  - atr_pct
+  - volatility
+
+# File di input prodotti dalla preparazione ML.
+input:
+  features: data/features/sample_ml_features.parquet
+  target: data/features/sample_ml_target.parquet
+  metadata: data/features/sample_ml_metadata.parquet
+
+# Artefatti generati dal training.
+output:
+  model: models/logistic_baseline_0.1.0.joblib
+  predictions: reports/logistic_baseline_predictions.csv
+  metrics: reports/logistic_baseline_metrics.json
+
+# Protezioni contro il data leakage.
+safety:
+  scaler_fitted_on_training_only: true
+  target_allowed_as_feature: false
+  timestamp_allowed_as_feature: false
+  future_columns_allowed_as_features: false
+  paper_trading_only: true

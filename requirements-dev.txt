@@ -12,3 +12,9 @@ pytest-cov
 
 # Controllo qualità e formattazione del codice.
 ruff
+
+# Machine Learning e validazione temporale.
+scikit-learn
+
+# Salvataggio e caricamento dei modelli Machine Learning.
+joblib
