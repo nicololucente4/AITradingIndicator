@@ -1,0 +1,29 @@
+# Versione della configurazione del Model Registry.
+registry_version: "0.1.0"
+
+# Percorso del registro locale.
+registry_path: models/registry.json
+
+# Stati ammessi.
+allowed_statuses:
+  - CANDIDATE
+  - APPROVED
+  - REJECTED
+
+# Stato iniziale assegnato ai nuovi modelli.
+default_status: CANDIDATE
+
+# Regole minime indicative per l'approvazione.
+# Non comportano approvazione automatica.
+approval_guidelines:
+  minimum_mean_macro_f1: 0.40
+  minimum_fold_macro_f1: 0.20
+  minimum_fold_count: 2
+
+# Protezioni.
+safety:
+  automatic_approval_enabled: false
+  real_trading_enabled: false
+  paper_trading_only: true
+  require_model_sha256: true
+  reject_duplicate_versions: true

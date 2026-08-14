@@ -1,0 +1,27 @@
+[
+    {
+        "model_version": "gradient_boosting_0.1.0",
+        "model_type": "HIST_GRADIENT_BOOSTING",
+        "status": "CANDIDATE",
+        "model_path": "models\\gradient_boosting_0.1.0.joblib",
+        "model_sha256": "68459e881564acad422f8f36f6275b61e528dbb330a55fcd7d58eaa4dcde2316",
+        "feature_set_version": "0.1.0",
+        "feature_columns": [
+            "return_1",
+            "ema_fast",
+            "ema_slow",
+            "ema_distance_pct",
+            "true_range",
+            "atr",
+            "atr_pct",
+            "volatility"
+        ],
+        "validation_type": "WALK_FORWARD_SAME_FOLDS",
+        "fold_count": 3,
+        "mean_macro_f1": 0.373333,
+        "minimum_macro_f1": 0.333333,
+        "mean_accuracy": 0.908333,
+        "registered_at_utc": "2026-08-14T17:05:13.958439+00:00",
+        "paper_trading_only": true
+    }
+]

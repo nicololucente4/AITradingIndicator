@@ -63,3 +63,6 @@ temp/
 # Report generati automaticamente.
 reports/*
 !reports/.gitkeep
+
+# Mantiene versionabile il registro dei modelli.
+!models/registry.json
