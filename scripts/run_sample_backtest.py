@@ -1,14 +1,19 @@
-"""Esegue il backtest completo sul dataset M15 di esempio."""
+"""Esegue il backtest completo sul dataset dimostrativo."""
+
+# Importa json per salvare le metriche in formato strutturato.
+import json
 
 # Importa Path per gestire i percorsi dei file.
 from pathlib import Path
 
-# Importa pandas per creare il dataset dimostrativo esteso
-# e salvare il registro dei trade.
+# Importa pandas per costruire il dataset dimostrativo.
 import pandas as pd
 
 # Importa configurazione e motore di backtest.
 from src.backtest.engine import BacktestConfig, run_backtest
+
+# Importa il calcolo centralizzato delle metriche.
+from src.backtest.metrics import calculate_backtest_metrics
 
 # Importa il validatore dei dati OHLCV.
 from src.data.validator import validate_ohlcv
@@ -37,8 +42,7 @@ def create_demo_dataframe() -> pd.DataFrame:
         tz="UTC",
     )
 
-    # Crea tre fasi di mercato:
-    # crescita, discesa e nuova crescita.
+    # Conterrà i prezzi di chiusura delle tre fasi di mercato.
     close_prices: list[float] = []
 
     # Prima fase crescente.
@@ -46,13 +50,16 @@ def create_demo_dataframe() -> pd.DataFrame:
 
     # Seconda fase decrescente.
     second_phase_start = close_prices[-1]
+
     close_prices.extend(second_phase_start - (index + 1) * 0.0006 for index in range(25))
 
     # Terza fase nuovamente crescente.
     third_phase_start = close_prices[-1]
+
     close_prices.extend(third_phase_start + (index + 1) * 0.0007 for index in range(25))
 
-    # Costruisce prezzi Open coerenti con il Close precedente.
+    # Il primo Open precede leggermente il primo Close.
+    # Gli Open successivi coincidono con il Close precedente.
     open_prices = [
         close_prices[0] - 0.0002,
         *close_prices[:-1],
@@ -88,44 +95,40 @@ def create_demo_dataframe() -> pd.DataFrame:
     return validate_ohlcv(dataframe)
 
 
-def print_summary(trades: pd.DataFrame) -> None:
-    """Mostra un riepilogo essenziale del backtest."""
+def print_metrics(metrics: dict[str, int | float | None]) -> None:
+    """Mostra nel terminale le metriche principali."""
 
-    # Gestisce il caso in cui non siano stati generati trade.
-    if trades.empty:
-        print("Nessun trade generato dalla configurazione corrente.")
-        return
+    # Recupera il Profit Factor.
+    profit_factor = metrics["profit_factor"]
 
-    # Identifica i trade con rendimento netto positivo.
-    winning_trades = trades[trades["net_return_percentage"] > 0]
+    # Converte il valore in una stringa leggibile.
+    profit_factor_text = "Non definito" if profit_factor is None else str(profit_factor)
 
-    # Calcola il rendimento netto cumulato in modo composto.
-    cumulative_return = (1.0 + trades["net_return_percentage"]).prod() - 1.0
-
-    # Calcola la percentuale di trade positivi.
-    win_rate = (len(winning_trades) / len(trades)) * 100.0
-
-    # Calcola il risultato medio espresso in R.
-    average_result_r = trades["result_r"].mean()
-
-    # Mostra il riepilogo.
+    # Mostra il riepilogo del backtest.
     print("Backtest completato correttamente.")
     print("Modalità: PAPER ONLY")
-    print(f"Trade totali: {len(trades)}")
-    print(f"Trade positivi: {len(winning_trades)}")
-    print(f"Win rate: {win_rate:.2f}%")
-    print(f"Rendimento netto composto simulato: {cumulative_return * 100:.4f}%")
-    print(f"Risultato medio: {average_result_r:.4f} R")
-    print("")
-    print("Motivi di uscita:")
-    print(trades["exit_reason"].value_counts().to_string())
+    print(f"Trade totali: {metrics['total_trades']}")
+    print(f"Trade positivi: {metrics['winning_trades']}")
+    print(f"Trade negativi: {metrics['losing_trades']}")
+    print(f"Win rate: {metrics['win_rate_percentage']:.2f}%")
+    print(f"Rendimento netto composto simulato: {metrics['cumulative_return_percentage']:.4f}%")
+    print(f"Rendimento netto medio per trade: {metrics['average_net_return_percentage']:.4f}%")
+    print(f"Expectancy: {metrics['expectancy_r']:.4f} R")
+    print(f"Profit Factor: {profit_factor_text}")
+    print(f"Maximum Drawdown: {metrics['maximum_drawdown_percentage']:.4f}%")
+    print(f"Serie massima di trade positivi: {metrics['maximum_consecutive_wins']}")
+    print(f"Serie massima di trade negativi: {metrics['maximum_consecutive_losses']}")
+    print(f"Costi percentuali complessivi: {metrics['total_cost_percentage']:.4f}%")
 
 
 def main() -> None:
-    """Esegue l'intera pipeline baseline, rischio e backtest."""
+    """Esegue baseline, Risk Engine, backtest e metriche."""
 
-    # Definisce il percorso del registro trade da generare.
-    output_path = Path("reports/sample_backtest_trades.csv")
+    # Definisce il percorso del registro dei trade.
+    trade_log_path = Path("reports/sample_backtest_trades.csv")
+
+    # Definisce il percorso del report delle metriche.
+    metrics_path = Path("reports/sample_backtest_metrics.json")
 
     # Crea il dataset dimostrativo.
     dataframe = create_demo_dataframe()
@@ -153,7 +156,7 @@ def main() -> None:
         signal_config=signal_config,
     )
 
-    # Configura i livelli teorici di rischio.
+    # Configura il Risk Engine simulato.
     risk_config = RiskLevelConfig(
         stop_atr_multiplier=1.5,
         minimum_stop_percentage=0.001,
@@ -162,13 +165,13 @@ def main() -> None:
         take_profit_3_r=3.0,
     )
 
-    # Calcola Entry teorica, SL e TP.
+    # Calcola i livelli teorici.
     risk_dataframe = build_risk_levels(
         dataframe=signal_dataframe,
         config=risk_config,
     )
 
-    # Configura il motore di backtest.
+    # Configura il backtest conservativo.
     backtest_config = BacktestConfig(
         slippage_percentage=0.0001,
         round_trip_commission_percentage=0.0002,
@@ -183,24 +186,47 @@ def main() -> None:
         config=backtest_config,
     )
 
-    # Mostra il riepilogo nel terminale.
-    print_summary(trades)
+    # Calcola le metriche tramite il modulo centralizzato.
+    metrics = calculate_backtest_metrics(trades)
 
-    # Crea la cartella del report se necessaria.
-    output_path.parent.mkdir(
+    # Converte le metriche in un dizionario.
+    metrics_dictionary = metrics.to_dict()
+
+    # Mostra il riepilogo nel terminale.
+    print_metrics(metrics_dictionary)
+
+    # Mostra i motivi di uscita se sono presenti trade.
+    if not trades.empty:
+        print("")
+        print("Motivi di uscita:")
+        print(trades["exit_reason"].value_counts().to_string())
+
+    # Crea la cartella dei report.
+    trade_log_path.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    # Salva il registro dei trade.
+    # Salva il registro completo dei trade.
     trades.to_csv(
-        output_path,
+        trade_log_path,
         index=False,
     )
 
-    # Mostra il percorso del file generato.
+    # Salva le metriche in formato JSON.
+    metrics_path.write_text(
+        json.dumps(
+            metrics_dictionary,
+            indent=4,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    # Mostra i percorsi dei file generati.
     print("")
-    print(f"Trade log creato: {output_path.resolve()}")
+    print(f"Trade log: {trade_log_path.resolve()}")
+    print(f"Report metriche: {metrics_path.resolve()}")
 
 
 if __name__ == "__main__":
