@@ -66,3 +66,6 @@ reports/*
 
 # Mantiene versionabile il registro dei modelli.
 !models/registry.json
+
+# Database e stato locale del Live Paper Engine.
+data/live_paper/
