@@ -1,0 +1,34 @@
+# Versione della logica di etichettatura.
+label_version: "0.1.0"
+
+# Metodo utilizzato per creare il target ML.
+method: triple_barrier
+
+# Orizzonte massimo osservato dopo ogni candela.
+maximum_holding_bars: 12
+
+# Barriere calcolate utilizzando l'ATR della candela corrente.
+barriers:
+  upper_atr_multiplier: 1.5
+  lower_atr_multiplier: 1.5
+
+# Gestione conservativa dei casi incerti.
+labels:
+  upper_barrier_first: LONG
+  lower_barrier_first: SHORT
+  ambiguous_intrabar: NO_TRADE
+  timeout: NO_TRADE
+
+# Classi ammesse dal futuro modello.
+allowed_classes:
+  - LONG
+  - SHORT
+  - NO_TRADE
+
+# Protezioni contro il data leakage.
+safety:
+  target_uses_future_data: true
+  target_allowed_as_feature: false
+  barrier_columns_allowed_as_features: false
+  bars_to_event_allowed_as_feature: false
+  require_full_future_horizon: true
