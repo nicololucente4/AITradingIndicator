@@ -1,0 +1,17 @@
+# Versione del filtro di confidenza.
+confidence_filter_version: "0.1.0"
+
+# Soglie iniziali da validare esclusivamente fuori campione.
+thresholds:
+  minimum_confidence: 0.60
+  minimum_probability_margin: 0.10
+
+# Segnale utilizzato quando la previsione viene rifiutata.
+fallback_signal: NO_TRADE
+
+# Regole di sicurezza.
+safety:
+  preserve_raw_prediction: true
+  low_confidence_becomes_no_trade: true
+  thresholds_selected_on_test_set: false
+  paper_trading_only: true
