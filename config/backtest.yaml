@@ -1,0 +1,44 @@
+# Versione della configurazione del motore di backtest.
+backtest_engine_version: "0.1.0"
+
+# Il backtest è esclusivamente simulato.
+paper_trading_only: true
+
+# Configurazione dell'ingresso.
+entry:
+  # L'ingresso avviene all'Open della candela successiva al segnale.
+  execution_price: next_candle_open
+
+  # Slippage sfavorevole applicato all'ingresso e all'uscita.
+  slippage_percentage: 0.0001
+
+# Costi complessivi simulati di ingresso e uscita.
+costs:
+  round_trip_commission_percentage: 0.0002
+
+# Configurazione dell'uscita.
+exit:
+  # Nella prima versione viene utilizzato TP1, corrispondente a 1R.
+  take_profit_r: 1.0
+
+  # Numero massimo di candele durante cui mantenere il trade.
+  maximum_holding_bars: 12
+
+  # In caso di SL e TP nella stessa candela prevale lo Stop Loss.
+  stop_first_when_ambiguous: true
+
+# Regole del motore.
+execution:
+  allow_overlapping_trades: false
+  allow_real_orders: false
+  allow_demo_orders: false
+
+# Protezioni contro risultati irrealistici.
+safety:
+  entry_on_signal_candle_close: false
+  confirmed_signals_only: true
+  use_future_data: false
+  conservative_intrabar_resolution: true
+  include_slippage: true
+
+\ No newline at end of file
