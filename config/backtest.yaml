@@ -40,5 +40,3 @@ safety:
   use_future_data: false
   conservative_intrabar_resolution: true
   include_slippage: true
-
-\ No newline at end of file
