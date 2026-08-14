@@ -1,0 +1,34 @@
+# Versione della modalità Replay.
+replay_engine_version: "0.1.0"
+
+# Modalità operativa corrente.
+operating_mode: replay
+
+# Il Replay utilizza esclusivamente dati storici locali.
+data_provider: file
+
+# Numero minimo di candele richieste prima della prima elaborazione.
+minimum_history_bars: 30
+
+# Limite opzionale di candele da elaborare.
+# null significa che verranno elaborate tutte le candele disponibili.
+maximum_replay_bars: null
+
+# Regole temporali.
+timing:
+  timeframe_minutes: 15
+  confirmed_candles_only: true
+  simulate_realtime_delay: false
+
+# File generati dalla sessione Replay.
+output:
+  replay_log: reports/sample_replay_log.csv
+  replay_report: reports/sample_replay_report.json
+
+# Protezioni operative.
+safety:
+  future_rows_allowed: false
+  real_orders_enabled: false
+  demo_orders_enabled: false
+  paper_trading_only: true
+  immutable_confirmed_signals: true
