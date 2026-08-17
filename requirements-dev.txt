@@ -18,3 +18,12 @@ scikit-learn
 
 # Salvataggio e caricamento dei modelli Machine Learning.
 joblib
+
+# Dashboard web locale e grafici interattivi.
+streamlit
+plotly
+
+# Backend API per il futuro frontend Next.js.
+fastapi
+uvicorn
+httpx
