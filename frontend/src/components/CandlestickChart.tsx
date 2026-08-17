@@ -1,135 +1,224 @@
 "use client";
 
-// Importa gli hook necessari per creare e distruggere il grafico.
+// Importa gli hook React necessari.
 import { useEffect, useRef } from "react";
 
-// Importa la serie candlestick e i tipi di Lightweight Charts.
+// Importa Lightweight Charts.
 import {
   CandlestickSeries,
   ColorType,
   createChart,
+  createSeriesMarkers,
   type CandlestickData,
+  type SeriesMarker,
   type UTCTimestamp,
 } from "lightweight-charts";
 
-// Rappresenta una candela ricevuta dal backend FastAPI.
-type Candle = {
-  timestamp: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-};
+// Importa i tipi condivisi del progetto.
+import type {
+  Candle,
+  SignalRecord,
+} from "@/src/types/market";
 
-// Definisce le proprietà ricevute dal componente.
+// Definisce le proprietà del componente.
 type CandlestickChartProps = {
   candles: Candle[];
+  signals: SignalRecord[];
 };
 
 /**
- * Converte un timestamp ISO nel formato Unix richiesto da Lightweight Charts.
- *
- * Lightweight Charts richiede:
- * - una BusinessDay per dati giornalieri;
- * - un UTCTimestamp in secondi per dati intraday.
+ * Converte un timestamp ISO in Unix timestamp espresso in secondi.
  */
 function convertToUtcTimestamp(
   timestamp: string
 ): UTCTimestamp {
-  // Converte il timestamp ricevuto in millisecondi Unix.
+  // Converte il timestamp in millisecondi Unix.
   const milliseconds = Date.parse(timestamp);
 
-  // Blocca timestamp non validi prima di passarli al grafico.
+  // Blocca eventuali timestamp non validi.
   if (Number.isNaN(milliseconds)) {
     throw new Error(
-      `Timestamp candela non valido: ${timestamp}`
+      `Timestamp non valido: ${timestamp}`
     );
   }
 
-  // Lightweight Charts utilizza secondi Unix, non millisecondi.
+  // Lightweight Charts richiede secondi Unix.
   return Math.floor(
     milliseconds / 1000
   ) as UTCTimestamp;
 }
 
 /**
- * Prepara e ordina le candele nel formato corretto.
+ * Converte e ordina le candele ricevute da FastAPI.
  */
 function prepareCandlestickData(
   candles: Candle[]
 ): CandlestickData<UTCTimestamp>[] {
-  // Converte ogni candela nel formato Lightweight Charts.
-  const convertedCandles = candles.map(
-    (candle) => ({
-      time: convertToUtcTimestamp(
-        candle.timestamp
-      ),
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-    })
-  );
-
-  // Ordina le candele cronologicamente.
-  convertedCandles.sort(
-    (firstCandle, secondCandle) =>
-      Number(firstCandle.time) -
-      Number(secondCandle.time)
-  );
-
-  // Rimuove eventuali timestamp duplicati.
+  // Usa una Map per eliminare eventuali timestamp duplicati.
   const uniqueCandles = new Map<
     number,
     CandlestickData<UTCTimestamp>
   >();
 
-  for (const candle of convertedCandles) {
+  for (const candle of candles) {
+    // Converte il timestamp della candela.
+    const candleTime = convertToUtcTimestamp(
+      candle.timestamp
+    );
+
+    // Salva la candela nel formato richiesto dal grafico.
     uniqueCandles.set(
-      Number(candle.time),
-      candle
+      Number(candleTime),
+      {
+        time: candleTime,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      }
     );
   }
 
-  // Restituisce una sequenza cronologica e priva di duplicati.
-  return Array.from(
+  // Converte la Map in array.
+  const preparedCandles = Array.from(
     uniqueCandles.values()
   );
+
+  // Ordina cronologicamente le candele.
+  preparedCandles.sort(
+    (firstCandle, secondCandle) =>
+      Number(firstCandle.time) -
+      Number(secondCandle.time)
+  );
+
+  // Restituisce le candele pronte per il grafico.
+  return preparedCandles;
 }
 
 /**
- * Mostra il grafico candlestick del mercato.
+ * Converte i segnali Live Paper in marker grafici.
+ */
+function prepareSignalMarkers(
+  signals: SignalRecord[]
+): SeriesMarker<UTCTimestamp>[] {
+  // Crea un marker per ogni segnale.
+  const markers: SeriesMarker<UTCTimestamp>[] =
+    signals.map((signal) => {
+      // Converte il timestamp del segnale.
+      const signalTime = convertToUtcTimestamp(
+        signal.timestamp
+      );
+
+      // Prepara la confidenza da visualizzare.
+      const confidenceText =
+        signal.prediction_confidence === null
+          ? "N/D"
+          : `${Math.round(
+              signal.prediction_confidence * 100
+            )}%`;
+
+      // Restituisce un marker LONG.
+      if (signal.signal === "LONG") {
+        return {
+          time: signalTime,
+          position: "belowBar",
+          color: "#22c55e",
+          shape: "arrowUp",
+          text: `LONG ${confidenceText}`,
+        };
+      }
+
+      // Restituisce un marker SHORT.
+      if (signal.signal === "SHORT") {
+        return {
+          time: signalTime,
+          position: "aboveBar",
+          color: "#ef4444",
+          shape: "arrowDown",
+          text: `SHORT ${confidenceText}`,
+        };
+      }
+
+      // Restituisce un marker NO_TRADE.
+      return {
+        time: signalTime,
+        position: "inBar",
+        color: "#94a3b8",
+        shape: "circle",
+        text: "NO TRADE",
+      };
+    });
+
+  // Ordina cronologicamente i marker.
+  markers.sort(
+    (firstMarker, secondMarker) =>
+      Number(firstMarker.time) -
+      Number(secondMarker.time)
+  );
+
+  // Restituisce i marker pronti per il grafico.
+  return markers;
+}
+
+/**
+ * Visualizza il grafico candlestick e i marker dei segnali.
  */
 export default function CandlestickChart({
   candles,
+  signals,
 }: CandlestickChartProps) {
-  // Mantiene il riferimento al contenitore HTML del grafico.
+  // Mantiene il riferimento al contenitore HTML.
   const containerRef =
     useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // Non crea il grafico finché il contenitore non è disponibile.
+    // Non crea il grafico senza contenitore.
     if (!containerRef.current) {
       return;
     }
 
-    // Non crea una serie vuota se non sono presenti candele.
+    // Non crea il grafico senza candele.
     if (candles.length === 0) {
       return;
     }
 
-    // Prepara e valida le candele prima della visualizzazione.
+    // Prepara le candele.
     const chartData =
       prepareCandlestickData(candles);
 
-    // Crea il grafico all'interno del contenitore.
+    // Recupera il primo e l'ultimo timestamp visibili.
+    const firstCandleTime = Number(
+      chartData[0].time
+    );
+
+    const lastCandleTime = Number(
+      chartData[chartData.length - 1].time
+    );
+
+    // Mantiene solamente i segnali presenti nell'intervallo del grafico.
+    const visibleSignals = signals.filter(
+      (signal) => {
+        const signalTime = Number(
+          convertToUtcTimestamp(
+            signal.timestamp
+          )
+        );
+
+        return (
+          signalTime >= firstCandleTime &&
+          signalTime <= lastCandleTime
+        );
+      }
+    );
+
+    // Crea il grafico.
     const chart = createChart(
       containerRef.current,
       {
-        // Adatta automaticamente il grafico al contenitore.
+        // Adatta automaticamente larghezza e altezza.
         autoSize: true,
 
-        // Configura il tema scuro principale.
+        // Configura il tema scuro.
         layout: {
           background: {
             type: ColorType.Solid,
@@ -140,7 +229,7 @@ export default function CandlestickChart({
             "Inter, ui-sans-serif, system-ui, sans-serif",
         },
 
-        // Configura la griglia del grafico.
+        // Configura la griglia.
         grid: {
           vertLines: {
             color: "#1e293b",
@@ -154,12 +243,12 @@ export default function CandlestickChart({
         rightPriceScale: {
           borderColor: "#334155",
           scaleMargins: {
-            top: 0.10,
-            bottom: 0.10,
+            top: 0.12,
+            bottom: 0.12,
           },
         },
 
-        // Configura la scala temporale M15.
+        // Configura la scala temporale intraday.
         timeScale: {
           borderColor: "#334155",
           timeVisible: true,
@@ -181,13 +270,15 @@ export default function CandlestickChart({
           },
         },
 
-        // Consente scorrimento e zoom.
+        // Abilita lo scorrimento.
         handleScroll: {
           mouseWheel: true,
           pressedMouseMove: true,
           horzTouchDrag: true,
           vertTouchDrag: false,
         },
+
+        // Abilita lo zoom.
         handleScale: {
           axisPressedMouseMove: true,
           mouseWheel: true,
@@ -196,25 +287,25 @@ export default function CandlestickChart({
       }
     );
 
-    // Aggiunge la serie delle candele.
+    // Aggiunge la serie candlestick.
     const candlestickSeries = chart.addSeries(
       CandlestickSeries,
       {
-        // Configura le candele rialziste.
+        // Colori delle candele rialziste.
         upColor: "#22c55e",
         wickUpColor: "#22c55e",
         borderUpColor: "#22c55e",
 
-        // Configura le candele ribassiste.
+        // Colori delle candele ribassiste.
         downColor: "#ef4444",
         wickDownColor: "#ef4444",
         borderDownColor: "#ef4444",
 
-        // Visualizza il prezzo corrente.
+        // Mostra il prezzo corrente.
         priceLineVisible: true,
         lastValueVisible: true,
 
-        // Imposta la precisione per EURUSD.
+        // Configura la precisione di EURUSD.
         priceFormat: {
           type: "price",
           precision: 5,
@@ -223,20 +314,32 @@ export default function CandlestickChart({
       }
     );
 
-    // Carica le candele convertite in timestamp Unix.
+    // Carica i dati sul grafico.
     candlestickSeries.setData(chartData);
 
-    // Adatta inizialmente il grafico a tutte le candele disponibili.
+    // Aggiunge i marker solo quando esistono segnali visibili.
+    if (visibleSignals.length > 0) {
+      const signalMarkers =
+        prepareSignalMarkers(
+          visibleSignals
+        );
+
+      createSeriesMarkers(
+        candlestickSeries,
+        signalMarkers
+      );
+    }
+
+    // Adatta la visualizzazione ai dati disponibili.
     chart.timeScale().fitContent();
 
-    // Distrugge il grafico quando il componente viene rimosso
-    // o quando cambia il dataset.
+    // Distrugge il grafico durante lo smontaggio del componente.
     return () => {
       chart.remove();
     };
-  }, [candles]);
+  }, [candles, signals]);
 
-  // Mostra il contenitore utilizzato da Lightweight Charts.
+  // Restituisce il contenitore del grafico.
   return (
     <div
       ref={containerRef}

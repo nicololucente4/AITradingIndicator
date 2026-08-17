@@ -1,82 +1,87 @@
-import CandlestickChart from "@/src/components/CandlestickChart";
+﻿import CandlestickChart from "@/src/components/CandlestickChart";
 import Header from "@/src/components/Header";
 import MarketStatus from "@/src/components/MarketStatus";
 
 import {
   getCandles,
   getHealth,
+  getSignals,
   getSystemStatus,
 } from "@/src/services/api";
 
-// Rappresenta una singola candela restituita da FastAPI.
-type Candle = {
-  timestamp: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-};
+import type {
+  Candle,
+  SignalRecord,
+} from "@/src/types/market";
 
-// Rappresenta la risposta dell'endpoint delle candele.
-type CandlesResponse = {
-  symbol: string;
-  timeframe: string;
-  timezone: string;
-  count: number;
-  candles: Candle[];
-};
+// Forza il rendering dinamico della pagina.
+//
+// La dashboard legge dati aggiornati da FastAPI e non deve
+// essere generata staticamente durante la build di Next.js.
+export const dynamic = "force-dynamic";
 
-// Rappresenta la risposta dell'endpoint health.
-type HealthResponse = {
-  status: string;
-  mode: string;
-  market_data_available: boolean;
-  database_available: boolean;
-  symbol: string;
-  timeframe: string;
-};
-
-// Rappresenta la risposta dello stato del sistema.
-type SystemStatusResponse = {
-  api_status: string;
-  engine_mode: string;
-  paper_trading_only: boolean;
-  real_orders_enabled: boolean;
-  symbol: string;
-  timeframe: string;
-  signal_count: number;
-  outcome_count: number;
-  latest_signal_timestamp: string | null;
-};
+// Impedisce la memorizzazione statica della pagina.
+export const revalidate = 0;
 
 export default async function Home() {
-  // Imposta i valori iniziali mostrati se FastAPI non è disponibile.
+  // Valori utilizzati quando FastAPI non è disponibile.
   let online = false;
   let symbol = "EURUSD";
   let timeframe = "M15";
+  let outcomeCount = 0;
+
+  // Dati caricati dal backend FastAPI.
   let candles: Candle[] = [];
+  let signals: SignalRecord[] = [];
 
   try {
-    // Interroga gli endpoint FastAPI.
-    const health =
-      (await getHealth()) as HealthResponse;
+    // Interroga gli endpoint FastAPI in parallelo.
+    const [
+      health,
+      status,
+      marketResponse,
+      signalsResponse,
+    ] = await Promise.all([
+      getHealth(),
+      getSystemStatus(),
+      getCandles(300),
+      getSignals(200),
+    ]);
 
-    const status =
-      (await getSystemStatus()) as SystemStatusResponse;
-
-    const market =
-      (await getCandles(300)) as CandlesResponse;
-
-    // Aggiorna lo stato del frontend.
+    // Aggiorna lo stato generale del terminale.
     online = health.status === "healthy";
     symbol = status.symbol;
     timeframe = status.timeframe;
-    candles = market.candles;
-  } catch {
-    // Mantiene il frontend utilizzabile anche con backend offline.
+    outcomeCount = status.outcome_count;
+
+    // Memorizza i dati di mercato.
+    candles = marketResponse.candles;
+    signals = signalsResponse.signals;
+  } catch (error) {
+    // Mostra l'errore nel terminale Next.js.
+    console.error(
+      "Impossibile caricare i dati FastAPI:",
+      error
+    );
+
+    // Mantiene disponibile l'interfaccia in modalità offline.
     online = false;
   }
+
+  // Calcola il numero dei segnali LONG.
+  const longCount = signals.filter(
+    (signal) => signal.signal === "LONG"
+  ).length;
+
+  // Calcola il numero dei segnali SHORT.
+  const shortCount = signals.filter(
+    (signal) => signal.signal === "SHORT"
+  ).length;
+
+  // Calcola il numero dei segnali NO_TRADE.
+  const noTradeCount = signals.filter(
+    (signal) => signal.signal === "NO_TRADE"
+  ).length;
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
@@ -85,36 +90,111 @@ export default async function Home() {
         timeframe={timeframe}
       />
 
-      <div className="space-y-6 p-6">
-        <MarketStatus online={online} />
+      <div className="space-y-5 p-5">
+        <section className="grid grid-cols-2 gap-4 md:grid-cols-5">
+          <MarketStatus online={online} />
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-          <h2 className="mb-4 text-xl font-semibold">
-            Market Chart
-          </h2>
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+            <div className="text-sm text-slate-400">
+              LONG
+            </div>
+
+            <div className="mt-2 text-lg font-bold text-green-400">
+              {longCount}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+            <div className="text-sm text-slate-400">
+              SHORT
+            </div>
+
+            <div className="mt-2 text-lg font-bold text-red-400">
+              {shortCount}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+            <div className="text-sm text-slate-400">
+              NO TRADE
+            </div>
+
+            <div className="mt-2 text-lg font-bold text-slate-300">
+              {noTradeCount}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+            <div className="text-sm text-slate-400">
+              Outcomes
+            </div>
+
+            <div className="mt-2 text-lg font-bold text-blue-400">
+              {outcomeCount}
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">
+                {symbol} Chart
+              </h2>
+
+              <p className="mt-1 text-xs text-slate-400">
+                {timeframe} · UTC · Live Paper
+              </p>
+            </div>
+
+            <div className="text-xs text-slate-500">
+              {candles.length} candele
+            </div>
+          </div>
 
           {candles.length > 0 ? (
-            <CandlestickChart candles={candles} />
+            <CandlestickChart
+              candles={candles}
+              signals={signals}
+            />
           ) : (
             <div className="flex h-[600px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-slate-500">
               Nessuna candela disponibile
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            Signals
+            <h3 className="font-semibold">
+              Signals
+            </h3>
+
+            <p className="mt-2 text-sm text-slate-400">
+              {signals.length} segnali registrati
+            </p>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            Outcomes
+            <h3 className="font-semibold">
+              Outcomes
+            </h3>
+
+            <p className="mt-2 text-sm text-slate-400">
+              {outcomeCount} esiti disponibili
+            </p>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            Statistics
+            <h3 className="font-semibold">
+              Statistics
+            </h3>
+
+            <p className="mt-2 text-sm text-slate-400">
+              Metriche Live Paper
+            </p>
           </div>
-        </div>
+        </section>
       </div>
     </main>
   );
