@@ -37,6 +37,50 @@ export type SignalRecord = {
   created_at_utc: string;
 };
 
+// Rappresenta un esito conclusivo del paper trading.
+export type OutcomeRecord = {
+  signal_id: string;
+  direction: "LONG" | "SHORT";
+  entry_price: number;
+  exit_price: number;
+  exit_reason: string;
+  exit_timestamp: string;
+  holding_bars: number;
+  gross_return_percentage: number;
+  result_r: number | null;
+  evaluated_at_utc: string;
+  outcome_mode: string;
+};
+
+// Rappresenta le statistiche aggregate Live Paper.
+export type LivePaperStatistics = {
+  total_signals: number;
+  long_signals: number;
+  short_signals: number;
+  no_trade_signals: number;
+  directional_signals: number;
+  resolved_directional_signals: number;
+  pending_directional_signals: number;
+  resolution_rate_percentage: number;
+  winning_outcomes: number;
+  losing_outcomes: number;
+  breakeven_outcomes: number;
+  win_rate_percentage: number;
+  expectancy_r: number;
+  average_win_r: number;
+  average_loss_r: number;
+  profit_factor: number | null;
+  cumulative_return_percentage: number;
+  maximum_drawdown_percentage: number;
+  take_profit_outcomes: number;
+  stop_loss_outcomes: number;
+  ambiguous_stop_outcomes: number;
+  time_expiry_outcomes: number;
+  average_holding_bars: number;
+  average_directional_confidence: number | null;
+  paper_trading_only: boolean;
+};
+
 // Risposta dell'endpoint Health.
 export type HealthResponse = {
   status: string;
@@ -74,4 +118,18 @@ export type SignalsResponse = {
   mode: string;
   count: number;
   signals: SignalRecord[];
+};
+
+// Risposta dell'endpoint Outcomes.
+export type OutcomesResponse = {
+  mode: string;
+  count: number;
+  outcomes: OutcomeRecord[];
+};
+
+// Risposta dell'endpoint Statistics.
+export type StatisticsResponse = {
+  mode: string;
+  data_available: boolean;
+  statistics: LivePaperStatistics | null;
 };

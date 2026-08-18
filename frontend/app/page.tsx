@@ -1,84 +1,101 @@
-﻿import CandlestickChart from "@/src/components/CandlestickChart";
+﻿// Importa i componenti del terminale.
+import CandlestickChart from "@/src/components/CandlestickChart";
 import Header from "@/src/components/Header";
 import MarketStatus from "@/src/components/MarketStatus";
+import OutcomesTable from "@/src/components/OutcomesTable";
+import SignalsTable from "@/src/components/SignalsTable";
+import StatisticsPanel from "@/src/components/StatisticsPanel";
 
+// Importa le funzioni che interrogano FastAPI.
 import {
   getCandles,
   getHealth,
+  getOutcomes,
   getSignals,
+  getStatistics,
   getSystemStatus,
 } from "@/src/services/api";
 
+// Importa i tipi dei dati.
 import type {
   Candle,
+  LivePaperStatistics,
+  OutcomeRecord,
   SignalRecord,
 } from "@/src/types/market";
 
-// Forza il rendering dinamico della pagina.
-//
-// La dashboard legge dati aggiornati da FastAPI e non deve
-// essere generata staticamente durante la build di Next.js.
+// Forza il rendering dinamico della dashboard.
 export const dynamic = "force-dynamic";
 
-// Impedisce la memorizzazione statica della pagina.
+// Disabilita la cache statica della pagina.
 export const revalidate = 0;
 
+/**
+ * Visualizza il terminale AI Trading Indicator.
+ */
 export default async function Home() {
-  // Valori utilizzati quando FastAPI non è disponibile.
+  // Definisce i valori di fallback.
   let online = false;
   let symbol = "EURUSD";
   let timeframe = "M15";
-  let outcomeCount = 0;
 
-  // Dati caricati dal backend FastAPI.
+  // Inizializza i dataset.
   let candles: Candle[] = [];
   let signals: SignalRecord[] = [];
+  let outcomes: OutcomeRecord[] = [];
+  let statistics: LivePaperStatistics | null =
+    null;
 
   try {
-    // Interroga gli endpoint FastAPI in parallelo.
+    // Interroga tutti gli endpoint FastAPI in parallelo.
     const [
       health,
       status,
       marketResponse,
       signalsResponse,
+      outcomesResponse,
+      statisticsResponse,
     ] = await Promise.all([
       getHealth(),
       getSystemStatus(),
       getCandles(300),
       getSignals(200),
+      getOutcomes(200),
+      getStatistics(),
     ]);
 
-    // Aggiorna lo stato generale del terminale.
+    // Aggiorna lo stato del terminale.
     online = health.status === "healthy";
     symbol = status.symbol;
     timeframe = status.timeframe;
-    outcomeCount = status.outcome_count;
 
-    // Memorizza i dati di mercato.
+    // Recupera i dati applicativi.
     candles = marketResponse.candles;
     signals = signalsResponse.signals;
+    outcomes = outcomesResponse.outcomes;
+    statistics = statisticsResponse.statistics;
   } catch (error) {
-    // Mostra l'errore nel terminale Next.js.
+    // Registra l'errore sul terminale Next.js.
     console.error(
       "Impossibile caricare i dati FastAPI:",
       error
     );
 
-    // Mantiene disponibile l'interfaccia in modalità offline.
+    // Mantiene accessibile la pagina.
     online = false;
   }
 
-  // Calcola il numero dei segnali LONG.
+  // Conta i segnali LONG.
   const longCount = signals.filter(
     (signal) => signal.signal === "LONG"
   ).length;
 
-  // Calcola il numero dei segnali SHORT.
+  // Conta i segnali SHORT.
   const shortCount = signals.filter(
     (signal) => signal.signal === "SHORT"
   ).length;
 
-  // Calcola il numero dei segnali NO_TRADE.
+  // Conta i segnali NO_TRADE.
   const noTradeCount = signals.filter(
     (signal) => signal.signal === "NO_TRADE"
   ).length;
@@ -88,6 +105,7 @@ export default async function Home() {
       <Header
         symbol={symbol}
         timeframe={timeframe}
+        online={online}
       />
 
       <div className="space-y-5 p-5">
@@ -130,7 +148,7 @@ export default async function Home() {
             </div>
 
             <div className="mt-2 text-lg font-bold text-blue-400">
-              {outcomeCount}
+              {outcomes.length}
             </div>
           </div>
         </section>
@@ -164,36 +182,34 @@ export default async function Home() {
           )}
         </section>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <h3 className="font-semibold">
+        <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+          <h2 className="mb-4 text-lg font-semibold">
+            Statistics
+          </h2>
+
+          <StatisticsPanel
+            statistics={statistics}
+          />
+        </section>
+
+        <section className="rounded-xl border border-slate-800 bg-slate-900">
+          <div className="border-b border-slate-800 px-5 py-4">
+            <h2 className="text-lg font-semibold">
               Signals
-            </h3>
-
-            <p className="mt-2 text-sm text-slate-400">
-              {signals.length} segnali registrati
-            </p>
+            </h2>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <h3 className="font-semibold">
+          <SignalsTable signals={signals} />
+        </section>
+
+        <section className="rounded-xl border border-slate-800 bg-slate-900">
+          <div className="border-b border-slate-800 px-5 py-4">
+            <h2 className="text-lg font-semibold">
               Outcomes
-            </h3>
-
-            <p className="mt-2 text-sm text-slate-400">
-              {outcomeCount} esiti disponibili
-            </p>
+            </h2>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <h3 className="font-semibold">
-              Statistics
-            </h3>
-
-            <p className="mt-2 text-sm text-slate-400">
-              Metriche Live Paper
-            </p>
-          </div>
+          <OutcomesTable outcomes={outcomes} />
         </section>
       </div>
     </main>

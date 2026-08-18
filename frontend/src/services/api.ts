@@ -2,11 +2,13 @@
 import type {
   CandlesResponse,
   HealthResponse,
+  OutcomesResponse,
   SignalsResponse,
+  StatisticsResponse,
   SystemStatusResponse,
 } from "@/src/types/market";
 
-// Definisce l'indirizzo locale del backend FastAPI.
+// Definisce l'indirizzo del backend FastAPI.
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "http://127.0.0.1:8000";
@@ -17,7 +19,7 @@ const API_BASE_URL =
 async function fetchFromApi<T>(
   endpoint: string
 ): Promise<T> {
-  // Esegue la richiesta disabilitando la cache di Next.js.
+  // Esegue la richiesta senza cache.
   const response = await fetch(
     `${API_BASE_URL}${endpoint}`,
     {
@@ -25,14 +27,14 @@ async function fetchFromApi<T>(
     }
   );
 
-  // Genera un errore leggibile se la risposta non è valida.
+  // Interrompe l'operazione in caso di risposta HTTP non valida.
   if (!response.ok) {
     throw new Error(
       `FastAPI request failed: ${endpoint}, status ${response.status}`
     );
   }
 
-  // Converte il JSON nel tipo richiesto.
+  // Converte la risposta JSON nel tipo richiesto.
   return (await response.json()) as T;
 }
 
@@ -74,5 +76,26 @@ export function getSignals(
 ): Promise<SignalsResponse> {
   return fetchFromApi<SignalsResponse>(
     `/api/v1/signals?limit=${limit}`
+  );
+}
+
+/**
+ * Recupera gli ultimi esiti conclusivi.
+ */
+export function getOutcomes(
+  limit = 200
+): Promise<OutcomesResponse> {
+  return fetchFromApi<OutcomesResponse>(
+    `/api/v1/outcomes?limit=${limit}`
+  );
+}
+
+/**
+ * Recupera le statistiche aggregate Live Paper.
+ */
+export function getStatistics():
+  Promise<StatisticsResponse> {
+  return fetchFromApi<StatisticsResponse>(
+    "/api/v1/statistics"
   );
 }
