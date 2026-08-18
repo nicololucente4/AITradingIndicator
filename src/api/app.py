@@ -9,8 +9,8 @@ from dataclasses import dataclass
 # Importa Path per gestire i percorsi locali.
 from pathlib import Path
 
-# Importa Any per descrivere risposte JSON generiche.
-from typing import Any
+# Importa Literal per limitare i timeframe accettati.
+from typing import Annotated, Any, Literal
 
 # Importa pandas per elaborare i dati.
 import pandas as pd
@@ -18,23 +18,46 @@ import pandas as pd
 # Importa FastAPI e gli errori HTTP.
 from fastapi import FastAPI, HTTPException, Query
 
-# Importa CORS per consentire il futuro collegamento da Next.js.
+# Importa CORS per consentire il collegamento da Next.js.
 from fastapi.middleware.cors import CORSMiddleware
 
 # Importa il provider CSV validato.
 from src.data.file_provider import FileDataProvider
+
+# Importa l'aggregatore multi-timeframe.
+from src.data.timeframe import (
+    TimeframeAggregationError,
+    resample_ohlcv,
+)
 
 # Importa il generatore delle statistiche Live Paper.
 from src.monitoring.live_paper_report import (
     generate_live_paper_statistics,
 )
 
+# Definisce i timeframe direttamente supportati dall'endpoint candele.
+SupportedTimeframe = Literal[
+    "M15",
+    "H1",
+    "H4",
+    "D1",
+]
+
+
+# Associa ogni timeframe alla relativa durata in minuti.
+TIMEFRAME_MINUTES: dict[str, int] = {
+    "M15": 15,
+    "H1": 60,
+    "H4": 240,
+    "D1": 1440,
+}
+
 
 @dataclass(frozen=True)
 class APIConfig:
     """Configurazione del backend FastAPI."""
 
-    # Percorso del dataset OHLCV.
+    # Percorso del dataset OHLCV sorgente.
     market_data_path: str = "data/sample/EURUSD_M15_sample.csv"
 
     # Percorso del database Live Paper.
@@ -43,8 +66,11 @@ class APIConfig:
     # Simbolo gestito dalla prima versione.
     symbol: str = "EURUSD"
 
-    # Timeframe operativo.
+    # Timeframe nativo del dataset sorgente.
     timeframe: str = "M15"
+
+    # Durata in minuti del timeframe sorgente.
+    source_timeframe_minutes: int = 15
 
     # Modalità esclusivamente simulata.
     paper_trading_only: bool = True
@@ -177,17 +203,17 @@ def _dataframe_to_records(
 ) -> list[dict[str, Any]]:
     """Converte un DataFrame in record JSON compatibili."""
 
-    # Crea una copia per non modificare il DataFrame originale.
+    # Crea una copia per non modificare l'originale.
     normalized = dataframe.copy(deep=True)
 
-    # Converte timestamp e date in stringhe ISO.
+    # Converte le colonne datetime in stringhe ISO.
     for column in normalized.columns:
         if pd.api.types.is_datetime64_any_dtype(normalized[column]):
             normalized[column] = normalized[column].map(
                 lambda value: value.isoformat() if pd.notna(value) else None
             )
 
-    # Converte eventuali Timestamp rimasti nelle colonne object.
+    # Converte eventuali Timestamp nelle colonne object.
     for column in normalized.columns:
         normalized[column] = normalized[column].map(
             lambda value: value.isoformat() if isinstance(value, pd.Timestamp) else value
@@ -199,8 +225,62 @@ def _dataframe_to_records(
         None,
     )
 
-    # Converte il contenuto in una lista di dizionari.
+    # Restituisce una lista di dizionari.
     return normalized.to_dict(orient="records")
+
+
+def _load_market_dataframe(
+    market_data_path: Path,
+) -> pd.DataFrame:
+    """Carica e valida il dataset OHLCV sorgente."""
+
+    # Verifica che il dataset esista.
+    if not market_data_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(f"Dataset OHLCV non trovato: {market_data_path}."),
+        )
+
+    try:
+        # Usa il provider CSV già validato.
+        provider = FileDataProvider()
+
+        return provider.load_csv(market_data_path)
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=(f"Errore caricamento OHLCV: {error}."),
+        ) from error
+
+
+def _select_timeframe(
+    dataframe: pd.DataFrame,
+    selected_timeframe: SupportedTimeframe,
+    source_minutes: int,
+) -> pd.DataFrame:
+    """Restituisce il dataset nel timeframe richiesto."""
+
+    # M15 coincide con il dataset sorgente.
+    if selected_timeframe == "M15":
+        return dataframe.copy(deep=True)
+
+    # Recupera la durata del timeframe richiesto.
+    target_minutes = TIMEFRAME_MINUTES[selected_timeframe]
+
+    try:
+        # Aggrega solamente candele complete.
+        return resample_ohlcv(
+            dataframe=dataframe,
+            source_minutes=source_minutes,
+            target_minutes=target_minutes,
+        )
+
+    except TimeframeAggregationError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Impossibile generare il timeframe {selected_timeframe}: {error}"),
+        ) from error
 
 
 def create_app(
@@ -215,16 +295,26 @@ def create_app(
     if not selected_config.paper_trading_only:
         raise ValueError("Il backend API richiede paper_trading_only=true.")
 
+    # Verifica il timeframe nativo.
+    if selected_config.timeframe != "M15":
+        raise ValueError("La prima versione API richiede un dataset sorgente M15.")
+
+    # Verifica la durata sorgente.
+    if selected_config.source_timeframe_minutes != 15:
+        raise ValueError("Il timeframe sorgente deve essere pari a quindici minuti.")
+
     # Crea l'applicazione FastAPI.
     app = FastAPI(
         title="AI Trading Indicator API",
-        description=("API read-only per dati OHLCV, segnali, esiti e statistiche Live Paper."),
-        version="0.1.0",
+        description=(
+            "API read-only per dati OHLCV multi-timeframe, segnali, esiti e statistiche Live Paper."
+        ),
+        version="0.2.0",
         docs_url="/docs",
         redoc_url="/redoc",
     )
 
-    # Abilita il collegamento dal futuro frontend Next.js.
+    # Abilita il collegamento dal frontend Next.js.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -246,10 +336,10 @@ def create_app(
 
         return {
             "application": "AI Trading Indicator API",
-            "version": "0.1.0",
+            "version": "0.2.0",
             "mode": "PAPER_ONLY",
             "symbol": selected_config.symbol,
-            "timeframe": selected_config.timeframe,
+            "source_timeframe": (selected_config.timeframe),
             "documentation": "/docs",
         }
 
@@ -262,7 +352,6 @@ def create_app(
 
         database_exists = Path(selected_config.database_path).exists()
 
-        # L'API è attiva anche se il database non è ancora stato creato.
         return {
             "status": "healthy",
             "mode": "PAPER_ONLY",
@@ -272,44 +361,89 @@ def create_app(
             "timeframe": selected_config.timeframe,
         }
 
+    @app.get("/api/v1/market/timeframes")
+    def get_timeframes() -> dict[str, object]:
+        """Restituisce i timeframe disponibili e futuri."""
+
+        return {
+            "source_timeframe": (selected_config.timeframe),
+            "timeframes": [
+                {
+                    "code": "M1",
+                    "minutes": 1,
+                    "available": False,
+                    "native": False,
+                    "reason": ("Richiede dati nativi M1 dal provider reale."),
+                },
+                {
+                    "code": "M5",
+                    "minutes": 5,
+                    "available": False,
+                    "native": False,
+                    "reason": ("Richiede dati nativi M5 dal provider reale."),
+                },
+                {
+                    "code": "M15",
+                    "minutes": 15,
+                    "available": True,
+                    "native": True,
+                    "reason": None,
+                },
+                {
+                    "code": "H1",
+                    "minutes": 60,
+                    "available": True,
+                    "native": False,
+                    "reason": None,
+                },
+                {
+                    "code": "H4",
+                    "minutes": 240,
+                    "available": True,
+                    "native": False,
+                    "reason": None,
+                },
+                {
+                    "code": "D1",
+                    "minutes": 1440,
+                    "available": True,
+                    "native": False,
+                    "reason": None,
+                },
+            ],
+        }
+
     @app.get("/api/v1/market/candles")
     def get_candles(
+        timeframe: Annotated[
+            SupportedTimeframe,
+            Query(),
+        ] = "M15",
         limit: int = Query(
             default=500,
             ge=1,
             le=5000,
         ),
     ) -> dict[str, object]:
-        """Restituisce le ultime candele OHLCV."""
+        """Restituisce le candele nel timeframe richiesto."""
 
-        # Verifica che il dataset esista.
-        market_data_path = Path(selected_config.market_data_path)
+        # Carica il dataset sorgente M15.
+        source_dataframe = _load_market_dataframe(Path(selected_config.market_data_path))
 
-        if not market_data_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=(f"Dataset OHLCV non trovato: {market_data_path}."),
-            )
-
-        try:
-            # Carica e valida il CSV.
-            provider = FileDataProvider()
-
-            dataframe = provider.load_csv(market_data_path)
-
-        except Exception as error:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Errore caricamento OHLCV: {error}.",
-            ) from error
+        # Genera il timeframe richiesto.
+        timeframe_dataframe = _select_timeframe(
+            dataframe=source_dataframe,
+            selected_timeframe=timeframe,
+            source_minutes=(selected_config.source_timeframe_minutes),
+        )
 
         # Mantiene solamente le ultime righe richieste.
-        selected_dataframe = dataframe.tail(limit).reset_index(drop=True)
+        selected_dataframe = timeframe_dataframe.tail(limit).reset_index(drop=True)
 
-        # Restituisce metadati e candele.
         return {
             "symbol": selected_config.symbol,
-            "timeframe": selected_config.timeframe,
+            "timeframe": timeframe,
+            "source_timeframe": (selected_config.timeframe),
             "timezone": "UTC",
             "count": len(selected_dataframe),
             "candles": _dataframe_to_records(selected_dataframe),
@@ -366,7 +500,7 @@ def create_app(
         # Legge segnali ed esiti.
         signals, outcomes = _read_database(selected_config.database_path)
 
-        # Se non esistono segnali, restituisce uno stato iniziale.
+        # Restituisce uno stato iniziale senza segnali.
         if signals.empty:
             return {
                 "mode": "PAPER_ONLY",
@@ -413,6 +547,12 @@ def create_app(
             "real_orders_enabled": False,
             "symbol": selected_config.symbol,
             "timeframe": selected_config.timeframe,
+            "available_timeframes": [
+                "M15",
+                "H1",
+                "H4",
+                "D1",
+            ],
             "signal_count": len(signals),
             "outcome_count": len(outcomes),
             "latest_signal_timestamp": (latest_signal_timestamp),
