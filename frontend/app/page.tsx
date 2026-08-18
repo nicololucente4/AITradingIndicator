@@ -1,12 +1,11 @@
-﻿// Importa i componenti del terminale.
-import CandlestickChart from "@/src/components/CandlestickChart";
+﻿import CandlestickChart from "@/src/components/CandlestickChart";
 import Header from "@/src/components/Header";
 import MarketStatus from "@/src/components/MarketStatus";
 import OutcomesTable from "@/src/components/OutcomesTable";
 import SignalsTable from "@/src/components/SignalsTable";
 import StatisticsPanel from "@/src/components/StatisticsPanel";
+import TimeframeSelector from "@/src/components/TimeframeSelector";
 
-// Importa le funzioni che interrogano FastAPI.
 import {
   getCandles,
   getHealth,
@@ -16,38 +15,67 @@ import {
   getSystemStatus,
 } from "@/src/services/api";
 
-// Importa i tipi dei dati.
 import type {
+  AvailableTimeframe,
   Candle,
   LivePaperStatistics,
   OutcomeRecord,
   SignalRecord,
 } from "@/src/types/market";
 
-// Forza il rendering dinamico della dashboard.
 export const dynamic = "force-dynamic";
-
-// Disabilita la cache statica della pagina.
 export const revalidate = 0;
 
-/**
- * Visualizza il terminale AI Trading Indicator.
- */
-export default async function Home() {
-  // Definisce i valori di fallback.
+const AVAILABLE_TIMEFRAMES: AvailableTimeframe[] = [
+  "M15",
+  "H1",
+  "H4",
+  "D1",
+];
+
+type HomePageProps = {
+  searchParams: Promise<{
+    timeframe?: string | string[];
+  }>;
+};
+
+function selectTimeframe(
+  value: string | string[] | undefined
+): AvailableTimeframe {
+  const selectedValue = Array.isArray(value)
+    ? value[0]
+    : value;
+
+  if (
+    selectedValue === undefined ||
+    !AVAILABLE_TIMEFRAMES.includes(
+      selectedValue as AvailableTimeframe
+    )
+  ) {
+    return "M15";
+  }
+
+  return selectedValue as AvailableTimeframe;
+}
+
+export default async function Home({
+  searchParams,
+}: HomePageProps) {
+  const resolvedSearchParams = await searchParams;
+
+  const selectedTimeframe = selectTimeframe(
+    resolvedSearchParams.timeframe
+  );
+
   let online = false;
   let symbol = "EURUSD";
-  let timeframe = "M15";
 
-  // Inizializza i dataset.
   let candles: Candle[] = [];
   let signals: SignalRecord[] = [];
   let outcomes: OutcomeRecord[] = [];
-  let statistics: LivePaperStatistics | null =
-    null;
+  let statistics: LivePaperStatistics | null = null;
 
   try {
-    // Interroga tutti gli endpoint FastAPI in parallelo.
     const [
       health,
       status,
@@ -58,44 +86,41 @@ export default async function Home() {
     ] = await Promise.all([
       getHealth(),
       getSystemStatus(),
-      getCandles(300),
+      getCandles(selectedTimeframe, 500),
       getSignals(200),
       getOutcomes(200),
       getStatistics(),
     ]);
 
-    // Aggiorna lo stato del terminale.
     online = health.status === "healthy";
     symbol = status.symbol;
-    timeframe = status.timeframe;
 
-    // Recupera i dati applicativi.
     candles = marketResponse.candles;
     signals = signalsResponse.signals;
     outcomes = outcomesResponse.outcomes;
     statistics = statisticsResponse.statistics;
   } catch (error) {
-    // Registra l'errore sul terminale Next.js.
     console.error(
       "Impossibile caricare i dati FastAPI:",
       error
     );
 
-    // Mantiene accessibile la pagina.
     online = false;
   }
 
-  // Conta i segnali LONG.
+  const chartSignals =
+    selectedTimeframe === "M15"
+      ? signals
+      : [];
+
   const longCount = signals.filter(
     (signal) => signal.signal === "LONG"
   ).length;
 
-  // Conta i segnali SHORT.
   const shortCount = signals.filter(
     (signal) => signal.signal === "SHORT"
   ).length;
 
-  // Conta i segnali NO_TRADE.
   const noTradeCount = signals.filter(
     (signal) => signal.signal === "NO_TRADE"
   ).length;
@@ -104,7 +129,7 @@ export default async function Home() {
     <main className="min-h-screen bg-slate-950 text-white">
       <Header
         symbol={symbol}
-        timeframe={timeframe}
+        timeframe={selectedTimeframe}
         online={online}
       />
 
@@ -154,30 +179,42 @@ export default async function Home() {
         </section>
 
         <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <h2 className="text-lg font-semibold">
                 {symbol} Chart
               </h2>
 
               <p className="mt-1 text-xs text-slate-400">
-                {timeframe} · UTC · Live Paper
+                {selectedTimeframe}
+                {" · UTC · Live Paper · "}
+                {candles.length}
+                {" candele"}
               </p>
             </div>
 
-            <div className="text-xs text-slate-500">
-              {candles.length} candele
-            </div>
+            <TimeframeSelector
+              selectedTimeframe={selectedTimeframe}
+            />
           </div>
+
+          {selectedTimeframe !== "M15" && (
+            <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+              I segnali ML sono attualmente generati sul timeframe M15
+              e non vengono sovrapposti alle candele aggregate.
+            </div>
+          )}
 
           {candles.length > 0 ? (
             <CandlestickChart
+              key={selectedTimeframe}
               candles={candles}
-              signals={signals}
+              signals={chartSignals}
             />
           ) : (
             <div className="flex h-[600px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-slate-500">
-              Nessuna candela disponibile
+              Nessuna candela disponibile per{" "}
+              {selectedTimeframe}
             </div>
           )}
         </section>
@@ -187,9 +224,7 @@ export default async function Home() {
             Statistics
           </h2>
 
-          <StatisticsPanel
-            statistics={statistics}
-          />
+          <StatisticsPanel statistics={statistics} />
         </section>
 
         <section className="rounded-xl border border-slate-800 bg-slate-900">

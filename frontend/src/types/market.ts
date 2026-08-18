@@ -1,4 +1,21 @@
-// Rappresenta una candela OHLCV restituita da FastAPI.
+// Timeframe attualmente restituiti da FastAPI.
+export type AvailableTimeframe =
+  | "M15"
+  | "H1"
+  | "H4"
+  | "D1";
+
+// Timeframe predisposti per il futuro provider reale.
+export type FutureTimeframe =
+  | "M1"
+  | "M5";
+
+// Insieme completo dei timeframe mostrati nel frontend.
+export type MarketTimeframe =
+  | AvailableTimeframe
+  | FutureTimeframe;
+
+// Rappresenta una candela OHLCV.
 export type Candle = {
   timestamp: string;
   open: number;
@@ -8,13 +25,13 @@ export type Candle = {
   volume: number;
 };
 
-// Definisce i segnali supportati dal sistema.
+// Segnali supportati dal sistema.
 export type TradingSignal =
   | "LONG"
   | "SHORT"
   | "NO_TRADE";
 
-// Rappresenta un segnale salvato dal Live Paper Engine.
+// Rappresenta un segnale Live Paper.
 export type SignalRecord = {
   signal_id: string;
   timestamp: string;
@@ -37,7 +54,7 @@ export type SignalRecord = {
   created_at_utc: string;
 };
 
-// Rappresenta un esito conclusivo del paper trading.
+// Rappresenta un esito conclusivo.
 export type OutcomeRecord = {
   signal_id: string;
   direction: "LONG" | "SHORT";
@@ -52,7 +69,7 @@ export type OutcomeRecord = {
   outcome_mode: string;
 };
 
-// Rappresenta le statistiche aggregate Live Paper.
+// Statistiche aggregate Live Paper.
 export type LivePaperStatistics = {
   total_signals: number;
   long_signals: number;
@@ -81,7 +98,16 @@ export type LivePaperStatistics = {
   paper_trading_only: boolean;
 };
 
-// Risposta dell'endpoint Health.
+// Informazioni restituite per ogni timeframe.
+export type TimeframeInformation = {
+  code: MarketTimeframe;
+  minutes: number;
+  available: boolean;
+  native: boolean;
+  reason: string | null;
+};
+
+// Risposta Health.
 export type HealthResponse = {
   status: string;
   mode: string;
@@ -91,7 +117,7 @@ export type HealthResponse = {
   timeframe: string;
 };
 
-// Risposta dell'endpoint System Status.
+// Risposta System Status.
 export type SystemStatusResponse = {
   api_status: string;
   engine_mode: string;
@@ -99,35 +125,43 @@ export type SystemStatusResponse = {
   real_orders_enabled: boolean;
   symbol: string;
   timeframe: string;
+  available_timeframes: AvailableTimeframe[];
   signal_count: number;
   outcome_count: number;
   latest_signal_timestamp: string | null;
 };
 
-// Risposta dell'endpoint Candles.
+// Risposta Candles.
 export type CandlesResponse = {
   symbol: string;
-  timeframe: string;
+  timeframe: AvailableTimeframe;
+  source_timeframe: string;
   timezone: string;
   count: number;
   candles: Candle[];
 };
 
-// Risposta dell'endpoint Signals.
+// Risposta Timeframes.
+export type TimeframesResponse = {
+  source_timeframe: string;
+  timeframes: TimeframeInformation[];
+};
+
+// Risposta Signals.
 export type SignalsResponse = {
   mode: string;
   count: number;
   signals: SignalRecord[];
 };
 
-// Risposta dell'endpoint Outcomes.
+// Risposta Outcomes.
 export type OutcomesResponse = {
   mode: string;
   count: number;
   outcomes: OutcomeRecord[];
 };
 
-// Risposta dell'endpoint Statistics.
+// Risposta Statistics.
 export type StatisticsResponse = {
   mode: string;
   data_available: boolean;
