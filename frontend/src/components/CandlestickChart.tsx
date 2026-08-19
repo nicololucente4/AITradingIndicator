@@ -14,6 +14,7 @@ import {
   LineSeries,
   LineStyle,
   type CandlestickData,
+  type IChartApi,
   type LineData,
   type LogicalRange,
   type SeriesMarker,
@@ -21,19 +22,32 @@ import {
 } from "lightweight-charts";
 
 import type {
+  AvailableTimeframe,
   Candle,
   SignalRecord,
 } from "@/src/types/market";
 
+// Proprietà ricevute dal componente.
 type CandlestickChartProps = {
   candles: Candle[];
   signals: SignalRecord[];
+  timeframe: AvailableTimeframe;
 };
 
-// Chiave usata per conservare zoom e posizione
-// durante i refresh della pagina Next.js.
-const CHART_RANGE_STORAGE_KEY =
+// Prefisso usato per salvare una vista distinta per ogni timeframe.
+const CHART_RANGE_STORAGE_PREFIX =
   "ai-trading-chart-logical-range";
+
+// Numero iniziale di candele visualizzate per ogni timeframe.
+const INITIAL_VISIBLE_BARS: Record<
+  AvailableTimeframe,
+  number
+> = {
+  M15: 120,
+  H1: 100,
+  H4: 70,
+  D1: 45,
+};
 
 /**
  * Converte un timestamp ISO in secondi Unix.
@@ -41,14 +55,17 @@ const CHART_RANGE_STORAGE_KEY =
 function convertToUtcTimestamp(
   timestamp: string
 ): UTCTimestamp {
+  // Converte la data in millisecondi Unix.
   const milliseconds = Date.parse(timestamp);
 
+  // Interrompe l'elaborazione se il timestamp non è valido.
   if (Number.isNaN(milliseconds)) {
     throw new Error(
       `Timestamp non valido: ${timestamp}`
     );
   }
 
+  // Lightweight Charts utilizza secondi Unix.
   return Math.floor(
     milliseconds / 1000
   ) as UTCTimestamp;
@@ -60,11 +77,13 @@ function convertToUtcTimestamp(
 function prepareCandlestickData(
   candles: Candle[]
 ): CandlestickData<UTCTimestamp>[] {
+  // Utilizza una Map per rimuovere eventuali duplicati temporali.
   const uniqueCandles = new Map<
     number,
     CandlestickData<UTCTimestamp>
   >();
 
+  // Converte ogni candela nel formato Lightweight Charts.
   for (const candle of candles) {
     const time = convertToUtcTimestamp(
       candle.timestamp
@@ -82,10 +101,12 @@ function prepareCandlestickData(
     );
   }
 
+  // Converte i valori della Map in un array.
   const preparedCandles = Array.from(
     uniqueCandles.values()
   );
 
+  // Ordina cronologicamente le candele.
   preparedCandles.sort(
     (firstCandle, secondCandle) =>
       Number(firstCandle.time) -
@@ -102,24 +123,30 @@ function calculateEma(
   candles: Candle[],
   period: number
 ): LineData<UTCTimestamp>[] {
+  // Non calcola la linea senza candele.
   if (candles.length === 0) {
     return [];
   }
 
+  // Ordina una copia delle candele.
   const orderedCandles = [...candles].sort(
     (firstCandle, secondCandle) =>
       Date.parse(firstCandle.timestamp) -
       Date.parse(secondCandle.timestamp)
   );
 
+  // Calcola il moltiplicatore dell'EMA.
   const multiplier = 2 / (period + 1);
 
+  // Usa il primo Close come valore iniziale.
   let currentEma =
     orderedCandles[0].close;
 
+  // Prepara il risultato finale.
   const emaData: LineData<UTCTimestamp>[] =
     [];
 
+  // Calcola ricorsivamente l'EMA.
   for (const candle of orderedCandles) {
     currentEma =
       candle.close * multiplier +
@@ -142,14 +169,17 @@ function calculateEma(
 function prepareSignalMarkers(
   signals: SignalRecord[]
 ): SeriesMarker<UTCTimestamp>[] {
+  // Prepara l'elenco dei marker.
   const markers: SeriesMarker<UTCTimestamp>[] =
     [];
 
+  // Converte ogni segnale.
   for (const signal of signals) {
     const time = convertToUtcTimestamp(
       signal.timestamp
     );
 
+    // Prepara la confidenza mostrata nel marker.
     const confidence =
       signal.prediction_confidence === null
         ? "N/D"
@@ -157,6 +187,7 @@ function prepareSignalMarkers(
             signal.prediction_confidence * 100
           )}%`;
 
+    // Crea il marker LONG.
     if (signal.signal === "LONG") {
       markers.push({
         time,
@@ -169,6 +200,7 @@ function prepareSignalMarkers(
       continue;
     }
 
+    // Crea il marker SHORT.
     if (signal.signal === "SHORT") {
       markers.push({
         time,
@@ -181,6 +213,7 @@ function prepareSignalMarkers(
       continue;
     }
 
+    // Crea il marker NO_TRADE.
     markers.push({
       time,
       position: "inBar",
@@ -190,6 +223,7 @@ function prepareSignalMarkers(
     });
   }
 
+  // Ordina cronologicamente i marker.
   markers.sort(
     (firstMarker, secondMarker) =>
       Number(firstMarker.time) -
@@ -200,16 +234,17 @@ function prepareSignalMarkers(
 }
 
 /**
- * Verifica che il segnale abbia direzione
- * e livelli operativi completi.
+ * Verifica che il segnale abbia direzione e livelli completi.
  */
 function hasDirectionalLevels(
   signal: SignalRecord
 ): boolean {
+  // Verifica la direzione.
   const validDirection =
     signal.signal === "LONG" ||
     signal.signal === "SHORT";
 
+  // Verifica i livelli minimi richiesti.
   const validLevels =
     typeof signal.entry_price === "number" &&
     typeof signal.stop_loss === "number" &&
@@ -224,6 +259,7 @@ function hasDirectionalLevels(
 function getLatestDirectionalSignal(
   signals: SignalRecord[]
 ): SignalRecord | null {
+  // Filtra e ordina i segnali validi.
   const directionalSignals = signals
     .filter(hasDirectionalLevels)
     .sort(
@@ -232,6 +268,7 @@ function getLatestDirectionalSignal(
         Date.parse(firstSignal.timestamp)
     );
 
+  // Restituisce null quando non esistono segnali validi.
   if (directionalSignals.length === 0) {
     return null;
   }
@@ -240,11 +277,21 @@ function getLatestDirectionalSignal(
 }
 
 /**
+ * Costruisce la chiave sessionStorage del timeframe.
+ */
+function buildStorageKey(
+  timeframe: AvailableTimeframe
+): string {
+  return `${CHART_RANGE_STORAGE_PREFIX}-${timeframe}`;
+}
+
+/**
  * Verifica la validità di un intervallo logico.
  */
 function isValidLogicalRange(
   value: unknown
 ): value is LogicalRange {
+  // Il valore deve essere un oggetto.
   if (
     typeof value !== "object" ||
     value === null
@@ -252,11 +299,13 @@ function isValidLogicalRange(
     return false;
   }
 
+  // Recupera in modo sicuro i due limiti.
   const candidate = value as {
     from?: unknown;
     to?: unknown;
   };
 
+  // Entrambi i limiti devono essere numeri validi.
   return (
     typeof candidate.from === "number" &&
     Number.isFinite(candidate.from) &&
@@ -267,26 +316,31 @@ function isValidLogicalRange(
 }
 
 /**
- * Legge zoom e posizione salvati nella sessione.
+ * Legge la vista salvata per il timeframe.
  */
-function loadStoredLogicalRange():
-  LogicalRange | null {
+function loadStoredLogicalRange(
+  storageKey: string
+): LogicalRange | null {
   try {
+    // Recupera il valore salvato.
     const storedValue =
       window.sessionStorage.getItem(
-        CHART_RANGE_STORAGE_KEY
+        storageKey
       );
 
+    // Nessuna vista è ancora disponibile.
     if (storedValue === null) {
       return null;
     }
 
+    // Converte il JSON.
     const parsedValue: unknown =
       JSON.parse(storedValue);
 
+    // Elimina valori non validi.
     if (!isValidLogicalRange(parsedValue)) {
       window.sessionStorage.removeItem(
-        CHART_RANGE_STORAGE_KEY
+        storageKey
       );
 
       return null;
@@ -294,29 +348,68 @@ function loadStoredLogicalRange():
 
     return parsedValue;
   } catch {
+    // La dashboard continua a funzionare
+    // anche senza sessionStorage.
     return null;
   }
 }
 
 /**
- * Salva zoom e posizione nella sessione.
+ * Salva la vista corrente del timeframe.
  */
 function saveLogicalRange(
+  storageKey: string,
   logicalRange: LogicalRange | null
 ): void {
+  // Non salva intervalli nulli.
   if (logicalRange === null) {
     return;
   }
 
   try {
+    // Salva l'intervallo come JSON.
     window.sessionStorage.setItem(
-      CHART_RANGE_STORAGE_KEY,
+      storageKey,
       JSON.stringify(logicalRange)
     );
   } catch {
-    // La dashboard continua a funzionare anche
-    // se sessionStorage non fosse disponibile.
+    // La dashboard continua a funzionare
+    // anche se sessionStorage non è disponibile.
   }
+}
+
+/**
+ * Applica la vista iniziale prevista per il timeframe.
+ */
+function applyInitialVisibleRange(
+  chart: IChartApi,
+  candleCount: number,
+  timeframe: AvailableTimeframe
+): void {
+  // Recupera il numero desiderato di candele.
+  const requestedBars =
+    INITIAL_VISIBLE_BARS[timeframe];
+
+  // Limita il valore alla quantità realmente disponibile.
+  const visibleBars = Math.min(
+    requestedBars,
+    candleCount
+  );
+
+  // Calcola l'inizio della finestra.
+  const fromValue = Math.max(
+    0,
+    candleCount - visibleBars
+  );
+
+  // Aggiunge spazio sulla destra dell'ultima candela.
+  const toValue = candleCount + 3;
+
+  // Applica la finestra iniziale.
+  chart.timeScale().setVisibleLogicalRange({
+    from: fromValue,
+    to: toValue,
+  });
 }
 
 /**
@@ -325,32 +418,49 @@ function saveLogicalRange(
 export default function CandlestickChart({
   candles,
   signals,
+  timeframe,
 }: CandlestickChartProps) {
+  // Mantiene il riferimento al contenitore.
   const containerRef =
     useRef<HTMLDivElement | null>(null);
 
+  // Mantiene il riferimento al grafico corrente.
+  const chartRef =
+    useRef<IChartApi | null>(null);
+
+  // Costruisce la chiave specifica del timeframe.
+  const storageKey =
+    buildStorageKey(timeframe);
+
+  // Gestisce la visibilità delle EMA.
   const [showEma, setShowEma] =
     useState(true);
 
+  // Gestisce la visibilità dei livelli.
   const [showLevels, setShowLevels] =
     useState(true);
 
   useEffect(() => {
+    // Attende il contenitore HTML.
     if (!containerRef.current) {
       return;
     }
 
+    // Non crea il grafico senza dati.
     if (candles.length === 0) {
       return;
     }
 
+    // Prepara le candele.
     const chartData =
       prepareCandlestickData(candles);
 
+    // Controllo difensivo.
     if (chartData.length === 0) {
       return;
     }
 
+    // Recupera i limiti temporali disponibili.
     const firstCandleTime = Number(
       chartData[0].time
     );
@@ -359,6 +469,7 @@ export default function CandlestickChart({
       chartData[chartData.length - 1].time
     );
 
+    // Mantiene solamente i segnali visibili.
     const visibleSignals = signals.filter(
       (signal) => {
         const signalTime = Number(
@@ -374,62 +485,75 @@ export default function CandlestickChart({
       }
     );
 
+    // Crea il grafico.
     const chart = createChart(
       containerRef.current,
       {
+        // Adatta il grafico al contenitore.
         autoSize: true,
 
+        // Configura il tema.
         layout: {
           background: {
             type: ColorType.Solid,
-            color: "#0f172a",
+            color: "#0b1220",
           },
           textColor: "#94a3b8",
           fontFamily:
             "Inter, ui-sans-serif, system-ui, sans-serif",
         },
 
+        // Configura una griglia più sottile.
         grid: {
           vertLines: {
-            color: "#1e293b",
+            color: "#162033",
           },
           horzLines: {
-            color: "#1e293b",
+            color: "#162033",
           },
         },
 
+        // Configura la scala prezzi.
         rightPriceScale: {
-          borderColor: "#334155",
+          borderColor: "#263449",
           autoScale: true,
           scaleMargins: {
-            top: 0.12,
-            bottom: 0.12,
+            top: 0.10,
+            bottom: 0.10,
           },
         },
 
+        // Configura la scala temporale.
         timeScale: {
-          borderColor: "#334155",
+          borderColor: "#263449",
           timeVisible: true,
           secondsVisible: false,
-          rightOffset: 4,
-          barSpacing: 12,
-          minBarSpacing: 3,
+          rightOffset: 3,
+          barSpacing: 9,
+          minBarSpacing: 2,
           fixLeftEdge: false,
           fixRightEdge: false,
           lockVisibleTimeRangeOnResize: true,
+          rightBarStaysOnScroll: true,
         },
 
+        // Configura il crosshair.
         crosshair: {
           vertLine: {
             color: "#64748b",
+            width: 1,
+            style: LineStyle.Dashed,
             labelBackgroundColor: "#334155",
           },
           horzLine: {
             color: "#64748b",
+            width: 1,
+            style: LineStyle.Dashed,
             labelBackgroundColor: "#334155",
           },
         },
 
+        // Abilita lo scorrimento.
         handleScroll: {
           mouseWheel: true,
           pressedMouseMove: true,
@@ -437,6 +561,7 @@ export default function CandlestickChart({
           vertTouchDrag: false,
         },
 
+        // Abilita lo zoom.
         handleScale: {
           axisPressedMouseMove: true,
           mouseWheel: true,
@@ -445,21 +570,29 @@ export default function CandlestickChart({
       }
     );
 
+    // Salva il riferimento al grafico.
+    chartRef.current = chart;
+
+    // Crea la serie candlestick.
     const candlestickSeries =
       chart.addSeries(
         CandlestickSeries,
         {
-          upColor: "#22c55e",
-          wickUpColor: "#22c55e",
-          borderUpColor: "#22c55e",
+          // Colore delle candele rialziste.
+          upColor: "#089981",
+          wickUpColor: "#089981",
+          borderUpColor: "#089981",
 
-          downColor: "#ef4444",
-          wickDownColor: "#ef4444",
-          borderDownColor: "#ef4444",
+          // Colore delle candele ribassiste.
+          downColor: "#f23645",
+          wickDownColor: "#f23645",
+          borderDownColor: "#f23645",
 
+          // Visualizza il prezzo corrente.
           priceLineVisible: true,
           lastValueVisible: true,
 
+          // Configura EURUSD a cinque decimali.
           priceFormat: {
             type: "price",
             precision: 5,
@@ -468,8 +601,10 @@ export default function CandlestickChart({
         }
       );
 
+    // Carica le candele.
     candlestickSeries.setData(chartData);
 
+    // Aggiunge i marker.
     if (visibleSignals.length > 0) {
       createSeriesMarkers(
         candlestickSeries,
@@ -479,12 +614,14 @@ export default function CandlestickChart({
       );
     }
 
+    // Aggiunge le EMA.
     if (showEma) {
+      // Crea EMA 10.
       const emaFastSeries =
         chart.addSeries(
           LineSeries,
           {
-            color: "#3b82f6",
+            color: "#2962ff",
             lineWidth: 2,
             title: "EMA 10",
             priceLineVisible: false,
@@ -492,15 +629,17 @@ export default function CandlestickChart({
           }
         );
 
+      // Carica EMA 10.
       emaFastSeries.setData(
         calculateEma(candles, 10)
       );
 
+      // Crea EMA 30.
       const emaSlowSeries =
         chart.addSeries(
           LineSeries,
           {
-            color: "#f59e0b",
+            color: "#ff9800",
             lineWidth: 2,
             title: "EMA 30",
             priceLineVisible: false,
@@ -508,11 +647,13 @@ export default function CandlestickChart({
           }
         );
 
+      // Carica EMA 30.
       emaSlowSeries.setData(
         calculateEma(candles, 30)
       );
     }
 
+    // Aggiunge i livelli dell'ultimo segnale.
     if (showLevels) {
       const latestSignal =
         getLatestDirectionalSignal(
@@ -535,6 +676,7 @@ export default function CandlestickChart({
         const takeProfit3 =
           latestSignal.take_profit_3;
 
+        // Disegna Entry.
         if (
           typeof entryPrice === "number"
         ) {
@@ -548,12 +690,13 @@ export default function CandlestickChart({
           });
         }
 
+        // Disegna Stop Loss.
         if (
           typeof stopLoss === "number"
         ) {
           candlestickSeries.createPriceLine({
             price: stopLoss,
-            color: "#ef4444",
+            color: "#f23645",
             lineWidth: 2,
             lineStyle: LineStyle.Dashed,
             axisLabelVisible: true,
@@ -561,12 +704,13 @@ export default function CandlestickChart({
           });
         }
 
+        // Disegna TP1.
         if (
           typeof takeProfit1 === "number"
         ) {
           candlestickSeries.createPriceLine({
             price: takeProfit1,
-            color: "#22c55e",
+            color: "#089981",
             lineWidth: 2,
             lineStyle: LineStyle.Dashed,
             axisLabelVisible: true,
@@ -574,6 +718,7 @@ export default function CandlestickChart({
           });
         }
 
+        // Disegna TP2.
         if (
           typeof takeProfit2 === "number"
         ) {
@@ -587,6 +732,7 @@ export default function CandlestickChart({
           });
         }
 
+        // Disegna TP3.
         if (
           typeof takeProfit3 === "number"
         ) {
@@ -603,25 +749,31 @@ export default function CandlestickChart({
     }
 
     /**
-     * Salva immediatamente ogni modifica effettuata
-     * dall'utente sulla scala temporale.
+     * Salva ogni modifica di zoom o posizione.
      */
     const handleRangeChange = (
       logicalRange: LogicalRange | null
     ): void => {
-      saveLogicalRange(logicalRange);
+      saveLogicalRange(
+        storageKey,
+        logicalRange
+      );
     };
 
+    // Registra il listener della scala temporale.
     chart
       .timeScale()
       .subscribeVisibleLogicalRangeChange(
         handleRangeChange
       );
 
-    // Ripristina lo zoom salvato.
+    // Recupera la vista salvata del timeframe.
     const storedRange =
-      loadStoredLogicalRange();
+      loadStoredLogicalRange(
+        storageKey
+      );
 
+    // Ripristina la vista oppure applica quella iniziale.
     if (storedRange !== null) {
       chart
         .timeScale()
@@ -629,25 +781,36 @@ export default function CandlestickChart({
           storedRange
         );
     } else {
-      // fitContent viene eseguito solo quando
-      // la sessione non contiene una vista salvata.
-      chart.timeScale().fitContent();
+      applyInitialVisibleRange(
+        chart,
+        chartData.length,
+        timeframe
+      );
     }
 
+    // Rimuove il grafico in modo sicuro.
     return () => {
-      // Salva nuovamente la vista prima della distruzione.
+      // Recupera e salva la vista corrente.
       const currentRange = chart
         .timeScale()
         .getVisibleLogicalRange();
 
-      saveLogicalRange(currentRange);
+      saveLogicalRange(
+        storageKey,
+        currentRange
+      );
 
+      // Rimuove il listener.
       chart
         .timeScale()
         .unsubscribeVisibleLogicalRangeChange(
           handleRangeChange
         );
 
+      // Elimina il riferimento.
+      chartRef.current = null;
+
+      // Distrugge il grafico.
       chart.remove();
     };
   }, [
@@ -655,17 +818,63 @@ export default function CandlestickChart({
     signals,
     showEma,
     showLevels,
+    storageKey,
+    timeframe,
   ]);
 
   /**
-   * Ripristina manualmente la vista iniziale.
+   * Adatta il grafico a tutte le candele.
    */
-  function resetSavedView(): void {
+  function fitChart(): void {
+    // Elimina la vista memorizzata.
     window.sessionStorage.removeItem(
-      CHART_RANGE_STORAGE_KEY
+      storageKey
     );
 
-    window.location.reload();
+    // Adatta il grafico corrente.
+    chartRef.current
+      ?.timeScale()
+      .fitContent();
+  }
+
+  /**
+   * Mostra le ultime candele del timeframe.
+   */
+  function goToLatestCandles(): void {
+    // Verifica che il grafico sia disponibile.
+    if (chartRef.current === null) {
+      return;
+    }
+
+    // Applica una nuova finestra sulle ultime candele.
+    applyInitialVisibleRange(
+      chartRef.current,
+      candles.length,
+      timeframe
+    );
+
+    // Salva la nuova vista.
+    const currentRange = chartRef.current
+      .timeScale()
+      .getVisibleLogicalRange();
+
+    saveLogicalRange(
+      storageKey,
+      currentRange
+    );
+  }
+
+  /**
+   * Ripristina solo la vista del timeframe corrente.
+   */
+  function resetSavedView(): void {
+    // Elimina la vista corrente.
+    window.sessionStorage.removeItem(
+      storageKey
+    );
+
+    // Torna alle ultime candele.
+    goToLatestCandles();
   }
 
   return (
@@ -707,6 +916,22 @@ export default function CandlestickChart({
 
         <button
           type="button"
+          onClick={goToLatestCandles}
+          className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:border-blue-500 hover:text-blue-300"
+        >
+          Ultime candele
+        </button>
+
+        <button
+          type="button"
+          onClick={fitChart}
+          className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:border-slate-500 hover:text-white"
+        >
+          Adatta grafico
+        </button>
+
+        <button
+          type="button"
           onClick={resetSavedView}
           className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:border-slate-500 hover:text-white"
         >
@@ -714,11 +939,11 @@ export default function CandlestickChart({
         </button>
 
         <div className="ml-auto flex items-center gap-4 text-xs">
-          <span className="text-blue-400">
+          <span className="text-blue-500">
             EMA 10
           </span>
 
-          <span className="text-amber-400">
+          <span className="text-orange-400">
             EMA 30
           </span>
         </div>
@@ -726,7 +951,7 @@ export default function CandlestickChart({
 
       <div
         ref={containerRef}
-        className="h-[600px] w-full overflow-hidden rounded-lg bg-slate-900"
+        className="h-[600px] w-full overflow-hidden rounded-lg bg-[#0b1220]"
       />
     </div>
   );

@@ -1,5 +1,6 @@
 ﻿import CandlestickChart from "@/src/components/CandlestickChart";
 import Header from "@/src/components/Header";
+import MarketSnapshot from "@/src/components/MarketSnapshot";
 import MarketStatus from "@/src/components/MarketStatus";
 import OutcomesTable from "@/src/components/OutcomesTable";
 import SignalsTable from "@/src/components/SignalsTable";
@@ -23,29 +24,40 @@ import type {
   SignalRecord,
 } from "@/src/types/market";
 
+// La pagina utilizza dati dinamici.
 export const dynamic = "force-dynamic";
+
+// Disabilita la cache statica.
 export const revalidate = 0;
 
-const AVAILABLE_TIMEFRAMES: AvailableTimeframe[] = [
-  "M15",
-  "H1",
-  "H4",
-  "D1",
-];
+// Timeframe attualmente disponibili.
+const AVAILABLE_TIMEFRAMES:
+  AvailableTimeframe[] = [
+    "M15",
+    "H1",
+    "H4",
+    "D1",
+  ];
 
+// Parametri URL della pagina.
 type HomePageProps = {
   searchParams: Promise<{
     timeframe?: string | string[];
   }>;
 };
 
+/**
+ * Seleziona un timeframe valido.
+ */
 function selectTimeframe(
   value: string | string[] | undefined
 ): AvailableTimeframe {
+  // Usa il primo parametro se ne sono presenti più di uno.
   const selectedValue = Array.isArray(value)
     ? value[0]
     : value;
 
+  // Usa M15 come fallback.
   if (
     selectedValue === undefined ||
     !AVAILABLE_TIMEFRAMES.includes(
@@ -58,24 +70,35 @@ function selectTimeframe(
   return selectedValue as AvailableTimeframe;
 }
 
+/**
+ * Visualizza il terminale.
+ */
 export default async function Home({
   searchParams,
 }: HomePageProps) {
-  const resolvedSearchParams = await searchParams;
+  // Legge i parametri URL.
+  const resolvedSearchParams =
+    await searchParams;
 
-  const selectedTimeframe = selectTimeframe(
-    resolvedSearchParams.timeframe
-  );
+  // Determina il timeframe corrente.
+  const selectedTimeframe =
+    selectTimeframe(
+      resolvedSearchParams.timeframe
+    );
 
+  // Valori di fallback.
   let online = false;
   let symbol = "EURUSD";
 
+  // Dati applicativi.
   let candles: Candle[] = [];
   let signals: SignalRecord[] = [];
   let outcomes: OutcomeRecord[] = [];
-  let statistics: LivePaperStatistics | null = null;
+  let statistics: LivePaperStatistics | null =
+    null;
 
   try {
+    // Interroga FastAPI in parallelo.
     const [
       health,
       status,
@@ -86,20 +109,27 @@ export default async function Home({
     ] = await Promise.all([
       getHealth(),
       getSystemStatus(),
-      getCandles(selectedTimeframe, 500),
+      getCandles(
+        selectedTimeframe,
+        500
+      ),
       getSignals(200),
       getOutcomes(200),
       getStatistics(),
     ]);
 
+    // Aggiorna lo stato.
     online = health.status === "healthy";
     symbol = status.symbol;
 
+    // Recupera i dati.
     candles = marketResponse.candles;
     signals = signalsResponse.signals;
     outcomes = outcomesResponse.outcomes;
-    statistics = statisticsResponse.statistics;
+    statistics =
+      statisticsResponse.statistics;
   } catch (error) {
+    // Registra l'errore nel terminale Next.js.
     console.error(
       "Impossibile caricare i dati FastAPI:",
       error
@@ -108,11 +138,13 @@ export default async function Home({
     online = false;
   }
 
+  // I segnali sono attualmente prodotti solo su M15.
   const chartSignals =
     selectedTimeframe === "M15"
       ? signals
       : [];
 
+  // Calcola i conteggi.
   const longCount = signals.filter(
     (signal) => signal.signal === "LONG"
   ).length;
@@ -122,7 +154,8 @@ export default async function Home({
   ).length;
 
   const noTradeCount = signals.filter(
-    (signal) => signal.signal === "NO_TRADE"
+    (signal) =>
+      signal.signal === "NO_TRADE"
   ).length;
 
   return (
@@ -194,22 +227,32 @@ export default async function Home({
             </div>
 
             <TimeframeSelector
-              selectedTimeframe={selectedTimeframe}
+              selectedTimeframe={
+                selectedTimeframe
+              }
             />
           </div>
 
           {selectedTimeframe !== "M15" && (
             <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-              I segnali ML sono attualmente generati sul timeframe M15
-              e non vengono sovrapposti alle candele aggregate.
+              I segnali ML sono attualmente generati
+              sul timeframe M15 e non vengono
+              sovrapposti alle candele aggregate.
             </div>
           )}
+
+          <MarketSnapshot
+            candles={candles}
+            symbol={symbol}
+            timeframe={selectedTimeframe}
+          />
 
           {candles.length > 0 ? (
             <CandlestickChart
               key={selectedTimeframe}
               candles={candles}
               signals={chartSignals}
+              timeframe={selectedTimeframe}
             />
           ) : (
             <div className="flex h-[600px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-slate-500">
@@ -224,7 +267,9 @@ export default async function Home({
             Statistics
           </h2>
 
-          <StatisticsPanel statistics={statistics} />
+          <StatisticsPanel
+            statistics={statistics}
+          />
         </section>
 
         <section className="rounded-xl border border-slate-800 bg-slate-900">
