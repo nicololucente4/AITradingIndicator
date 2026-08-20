@@ -3,25 +3,24 @@
 # Importa argparse per gestire le opzioni da terminale.
 import argparse
 
-# Importa importlib per caricare MetaTrader5 solamente se richiesto.
+# Importa importlib per caricare MetaTrader5 solo quando richiesto.
 import importlib
 
 # Importa logging per registrare lo stato del servizio.
 import logging
 
-# Importa signal per gestire Ctrl + C e arresto del processo.
+# Importa signal per gestire Ctrl+C e l'arresto del processo.
 import signal
 
 # Importa sys per restituire il codice di uscita.
 import sys
 
-# Importa Path per gestire configurazione, database e log.
+# Importa Path per gestire database, configurazioni e log.
 from pathlib import Path
 
-# Importa Protocol e cast per tipizzare il modulo MT5.
+# Importa cast per tipizzare il modulo MetaTrader5.
 from typing import cast
 
-# Importa pandas per gestire timestamp UTC.
 # Importa il caricatore sicuro del file .env.
 from src.config.environment import (
     EnvironmentFileError,
@@ -34,17 +33,32 @@ from src.config.settings import (
     SettingsError,
 )
 
-# Importa il provider file.
+# Importa l'interfaccia centrale dei provider.
 from src.data.live_provider import (
     FilePollingDataProvider,
     LiveDataProvider,
 )
 
-# Importa il provider MetaTrader 5 read-only.
+# Importa l'archivio SQLite condiviso delle candele.
+from src.data.market_data_store import (
+    SQLiteMarketDataStore,
+)
+
+# Importa il catalogo centralizzato dei timeframe.
+from src.data.market_timeframes import (
+    get_timeframe_by_minutes,
+)
+
+# Importa il provider MetaTrader5 read-only.
 from src.data.mt5_provider import (
     MetaTrader5Module,
     MetaTrader5PollingDataProvider,
     MetaTrader5ProviderError,
+)
+
+# Importa il decorator che salva automaticamente le candele.
+from src.data.persisting_provider import (
+    PersistingLiveDataProvider,
 )
 
 # Importa il runner continuo.
@@ -72,11 +86,14 @@ from src.monitoring.live_processor import (
     RegisteredLiveMLProcessor,
 )
 
-# Importa Outcome Tracker e configurazione.
+# Importa Outcome Tracker e relativa configurazione.
 from src.monitoring.outcome_tracker import (
     OutcomeTracker,
     OutcomeTrackerConfig,
 )
+
+# Percorso predefinito dell'archivio condiviso delle candele.
+DEFAULT_MARKET_DATA_DATABASE_PATH = Path("data/live_paper/market_data.db")
 
 
 class ContinuousServiceError(RuntimeError):
@@ -101,7 +118,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help=("Percorso del file .env locale. Valore predefinito: .env"),
     )
 
-    # Permette un numero limitato di cicli per collaudi.
+    # Permette un numero limitato di cicli per i collaudi.
     parser.add_argument(
         "--max-cycles",
         type=int,
@@ -109,24 +126,32 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help=("Numero massimo di cicli. Se omesso, il servizio continua fino a Ctrl+C."),
     )
 
-    # Consente di controllare tutto senza avviare il loop.
+    # Consente di controllare tutto senza avviare il ciclo.
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help=("Valida configurazione e componenti senza avviare il servizio continuo."),
     )
 
-    # Restituisce il parser configurato.
+    # Permette di specificare un archivio candele differente.
+    parser.add_argument(
+        "--market-data-db",
+        default=str(DEFAULT_MARKET_DATA_DATABASE_PATH),
+        help=(
+            "Percorso del database SQLite delle candele. "
+            "Valore predefinito: data/live_paper/market_data.db"
+        ),
+    )
+
     return parser
 
 
 def configure_logging() -> logging.Logger:
     """Configura log su terminale e file locale."""
 
-    # Definisce la cartella dei log.
+    # Definisce e crea la cartella dei log.
     log_directory = Path("logs")
 
-    # Crea la cartella se non esiste.
     log_directory.mkdir(
         parents=True,
         exist_ok=True,
@@ -138,10 +163,9 @@ def configure_logging() -> logging.Logger:
     # Crea il logger dedicato.
     logger = logging.getLogger("ai_trading_indicator.live_paper")
 
-    # Imposta il livello informativo.
     logger.setLevel(logging.INFO)
 
-    # Evita duplicazioni se la funzione viene richiamata più volte.
+    # Evita handler duplicati.
     logger.handlers.clear()
 
     # Definisce il formato comune.
@@ -167,7 +191,7 @@ def configure_logging() -> logging.Logger:
 
     file_handler.setFormatter(formatter)
 
-    # Aggiunge entrambi gli handler.
+    # Registra entrambi gli handler.
     logger.addHandler(console_handler)
 
     logger.addHandler(file_handler)
@@ -179,7 +203,7 @@ def configure_logging() -> logging.Logger:
 
 
 def import_metatrader5_module() -> MetaTrader5Module:
-    """Importa MetaTrader5 solamente quando il provider selezionato è MT5."""
+    """Importa MetaTrader5 solo quando il provider selezionato è MT5."""
 
     try:
         # Importa dinamicamente il modulo ufficiale.
@@ -192,17 +216,16 @@ def import_metatrader5_module() -> MetaTrader5Module:
             "-r requirements-mt5.txt"
         ) from error
 
-    # Restituisce il modulo con il protocollo previsto.
     return cast(
         MetaTrader5Module,
         imported_module,
     )
 
 
-def create_provider(
+def create_base_provider(
     settings: ApplicationSettings,
 ) -> LiveDataProvider:
-    """Crea il provider configurato nel file .env."""
+    """Crea il provider FILE o MT5 senza persistenza."""
 
     # Crea il provider file.
     if settings.data_provider == "FILE":
@@ -212,7 +235,6 @@ def create_provider(
                 f"Dataset del provider FILE non trovato: {settings.file_provider_path.resolve()}."
             )
 
-        # Restituisce il provider file.
         return FilePollingDataProvider(
             file_path=(settings.file_provider_path),
             timeframe_minutes=(settings.timeframe_minutes),
@@ -223,7 +245,6 @@ def create_provider(
         # Importa MT5 solamente in questo caso.
         mt5_module = import_metatrader5_module()
 
-        # Restituisce il provider read-only.
         return MetaTrader5PollingDataProvider(
             settings=settings,
             mt5_module=mt5_module,
@@ -233,12 +254,40 @@ def create_provider(
     raise ContinuousServiceError(f"Provider dati non supportato: {settings.data_provider}.")
 
 
+def create_persisting_provider(
+    settings: ApplicationSettings,
+    market_data_database_path: Path,
+) -> PersistingLiveDataProvider:
+    """Crea il provider con persistenza automatica delle candele."""
+
+    # Il percorso non può essere vuoto.
+    if not str(market_data_database_path).strip():
+        raise ContinuousServiceError("Il percorso del database candele non può essere vuoto.")
+
+    # Recupera il codice timeframe dal catalogo centrale.
+    timeframe = get_timeframe_by_minutes(settings.timeframe_minutes)
+
+    # Crea il provider originale.
+    base_provider = create_base_provider(settings)
+
+    # Crea l'archivio persistente.
+    market_data_store = SQLiteMarketDataStore(market_data_database_path)
+
+    # Restituisce il decorator persistente.
+    return PersistingLiveDataProvider(
+        provider=base_provider,
+        store=market_data_store,
+        symbol=settings.trading_symbol,
+        timeframe=timeframe.code,
+    )
+
+
 def create_processor(
     settings: ApplicationSettings,
 ) -> RegisteredLiveMLProcessor:
     """Crea il processore del modello ML registrato."""
 
-    # Il modello corrente è sviluppato per M15.
+    # Il modello corrente è sviluppato esclusivamente per M15.
     if settings.timeframe_minutes != 15:
         raise ContinuousServiceError(
             "Il modello gradient_boosting_0.1.0 richiede TIMEFRAME_MINUTES=15."
@@ -292,7 +341,6 @@ def create_coordinator(
         ),
     )
 
-    # Restituisce il coordinatore.
     return LivePaperCoordinator(
         engine=engine,
         outcome_tracker=outcome_tracker,
@@ -302,6 +350,7 @@ def create_coordinator(
 def print_startup_summary(
     settings: ApplicationSettings,
     processor: RegisteredLiveMLProcessor,
+    provider: PersistingLiveDataProvider,
     dry_run: bool,
 ) -> None:
     """Mostra un riepilogo privo di credenziali."""
@@ -316,7 +365,7 @@ def print_startup_summary(
     print("AI Trading Indicator - Continuous Live Paper")
     print("=" * 68)
 
-    # Mostra i parametri operativi.
+    # Mostra i parametri non sensibili.
     print(f"Modalità: {settings_summary['app_mode']}")
 
     print(f"Provider: {settings_summary['data_provider']}")
@@ -327,7 +376,11 @@ def print_startup_summary(
 
     print(f"Intervallo polling: {settings_summary['poll_interval_seconds']} secondi")
 
-    print(f"Database: {settings_summary['live_paper_database_path']}")
+    print(f"Database segnali ed esiti: {settings_summary['live_paper_database_path']}")
+
+    print(f"Database candele: {provider.store.database_path}")
+
+    print(f"Timeframe archivio: {provider.timeframe}")
 
     print(f"Modello: {processor_summary['model_version']}")
 
@@ -382,7 +435,7 @@ def main() -> int:
     # Configura il logging.
     logger = configure_logging()
 
-    # Inizializza riferimenti usati durante la chiusura.
+    # Inizializza riferimenti usati nella chiusura.
     provider: LiveDataProvider | None = None
 
     runner: ContinuousLivePaperRunner | None = None
@@ -395,21 +448,32 @@ def main() -> int:
             override_existing=True,
         )
 
-        # Controllo difensivo dei vincoli.
+        # Verifica i vincoli di sicurezza.
         if not settings.paper_trading_only:
             raise ContinuousServiceError("PAPER_TRADING_ONLY deve essere true.")
 
         if settings.real_orders_enabled:
             raise ContinuousServiceError("REAL_ORDERS_ENABLED deve essere false.")
 
-        # Crea tutti i componenti.
-        provider = create_provider(settings)
+        # Converte il percorso dell'archivio candele.
+        market_data_database_path = Path(arguments.market_data_db)
 
+        # Crea provider e archivio persistente.
+        persisting_provider = create_persisting_provider(
+            settings=settings,
+            market_data_database_path=(market_data_database_path),
+        )
+
+        # Mantiene il riferimento per la chiusura finale.
+        provider = persisting_provider
+
+        # Crea il processore ML.
         processor = create_processor(settings)
 
+        # Crea il coordinatore.
         coordinator = create_coordinator(
             settings=settings,
-            provider=provider,
+            provider=persisting_provider,
             processor=processor,
         )
 
@@ -417,10 +481,11 @@ def main() -> int:
         print_startup_summary(
             settings=settings,
             processor=processor,
+            provider=persisting_provider,
             dry_run=arguments.dry_run,
         )
 
-        # Il dry run termina senza avviare polling.
+        # Il dry run termina senza eseguire polling.
         if arguments.dry_run:
             print("DRY RUN COMPLETATO: configurazione e componenti validi.")
 
@@ -438,14 +503,14 @@ def main() -> int:
             logger=logger,
         )
 
-        # Gestisce Ctrl+C e arresto del sistema.
+        # Gestisce Ctrl+C e SIGTERM.
         def handle_stop_signal(
             signal_number: int,
             stack_frame: object,
         ) -> None:
             """Richiede un arresto controllato."""
 
-            # I parametri non sono necessari.
+            # I parametri non vengono utilizzati.
             del signal_number
             del stack_frame
 
@@ -459,8 +524,7 @@ def main() -> int:
             handle_stop_signal,
         )
 
-        # SIGTERM non è disponibile in ogni ambiente Windows,
-        # quindi viene registrato solamente se presente.
+        # Registra SIGTERM quando disponibile.
         if hasattr(
             signal,
             "SIGTERM",
@@ -476,14 +540,19 @@ def main() -> int:
         # Mostra il riepilogo finale.
         print("=" * 68)
         print("SERVIZIO LIVE PAPER TERMINATO")
+
         print(f"Cicli tentati: {report.attempted_cycles}")
+
         print(f"Cicli completati: {report.successful_cycles}")
+
         print(f"Cicli falliti: {report.failed_cycles}")
+
         print(f"Arresto richiesto: {report.stopped_by_request}")
+
         print("ORDINI REALI: DISABILITATI")
         print("=" * 68)
 
-        # Un servizio con soli errori restituisce fallimento.
+        # Restituisce errore se tutti i cicli sono falliti.
         if report.successful_cycles == 0 and report.failed_cycles > 0:
             return 1
 
@@ -497,7 +566,7 @@ def main() -> int:
         LiveMLProcessorError,
         MetaTrader5ProviderError,
     ) as error:
-        # Registra un errore privo di password.
+        # Registra l'errore senza informazioni sensibili.
         logger.error(
             "Avvio servizio fallito. Tipo: %s. Messaggio: %s",
             type(error).__name__,
@@ -513,7 +582,7 @@ def main() -> int:
         return 1
 
     finally:
-        # Garantisce la chiusura del provider MT5.
+        # Garantisce la chiusura del provider.
         if provider is not None:
             disconnect_provider(
                 provider=provider,
