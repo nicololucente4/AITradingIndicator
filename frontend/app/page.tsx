@@ -1,4 +1,4 @@
-﻿import CandlestickChart from "@/src/components/CandlestickChart";
+﻿// Importa i componenti del terminale.
 import Header from "@/src/components/Header";
 import MarketSnapshot from "@/src/components/MarketSnapshot";
 import MarketStatus from "@/src/components/MarketStatus";
@@ -6,7 +6,9 @@ import OutcomesTable from "@/src/components/OutcomesTable";
 import SignalsTable from "@/src/components/SignalsTable";
 import StatisticsPanel from "@/src/components/StatisticsPanel";
 import TimeframeSelector from "@/src/components/TimeframeSelector";
+import UnifiedMarketChart from "@/src/components/UnifiedMarketChart";
 
+// Importa le funzioni che interrogano FastAPI.
 import {
   getCandles,
   getHealth,
@@ -16,6 +18,7 @@ import {
   getSystemStatus,
 } from "@/src/services/api";
 
+// Importa i tipi condivisi.
 import type {
   AvailableTimeframe,
   Candle,
@@ -24,22 +27,21 @@ import type {
   SignalRecord,
 } from "@/src/types/market";
 
-// La pagina utilizza dati dinamici.
+// Forza il rendering dinamico della dashboard.
 export const dynamic = "force-dynamic";
 
-// Disabilita la cache statica.
+// Disabilita la cache statica della pagina.
 export const revalidate = 0;
 
-// Timeframe attualmente disponibili.
-const AVAILABLE_TIMEFRAMES:
-  AvailableTimeframe[] = [
-    "M15",
-    "H1",
-    "H4",
-    "D1",
-  ];
+// Elenca i timeframe attualmente disponibili.
+const AVAILABLE_TIMEFRAMES: AvailableTimeframe[] = [
+  "M15",
+  "H1",
+  "H4",
+  "D1",
+];
 
-// Parametri URL della pagina.
+// Rappresenta i parametri URL ricevuti dalla pagina.
 type HomePageProps = {
   searchParams: Promise<{
     timeframe?: string | string[];
@@ -47,17 +49,17 @@ type HomePageProps = {
 };
 
 /**
- * Seleziona un timeframe valido.
+ * Controlla e normalizza il timeframe ricevuto dall'URL.
  */
 function selectTimeframe(
   value: string | string[] | undefined
 ): AvailableTimeframe {
-  // Usa il primo parametro se ne sono presenti più di uno.
+  // Se il parametro è ripetuto, utilizza il primo valore.
   const selectedValue = Array.isArray(value)
     ? value[0]
     : value;
 
-  // Usa M15 come fallback.
+  // Utilizza M15 quando il valore è assente o non supportato.
   if (
     selectedValue === undefined ||
     !AVAILABLE_TIMEFRAMES.includes(
@@ -67,30 +69,31 @@ function selectTimeframe(
     return "M15";
   }
 
+  // Restituisce il timeframe validato.
   return selectedValue as AvailableTimeframe;
 }
 
 /**
- * Visualizza il terminale.
+ * Visualizza il terminale AI Trading Indicator.
  */
 export default async function Home({
   searchParams,
 }: HomePageProps) {
-  // Legge i parametri URL.
+  // Legge i parametri URL asincroni di Next.js.
   const resolvedSearchParams =
     await searchParams;
 
-  // Determina il timeframe corrente.
+  // Determina il timeframe selezionato.
   const selectedTimeframe =
     selectTimeframe(
       resolvedSearchParams.timeframe
     );
 
-  // Valori di fallback.
+  // Definisce i valori di fallback.
   let online = false;
   let symbol = "EURUSD";
 
-  // Dati applicativi.
+  // Inizializza i dati applicativi.
   let candles: Candle[] = [];
   let signals: SignalRecord[] = [];
   let outcomes: OutcomeRecord[] = [];
@@ -98,7 +101,7 @@ export default async function Home({
     null;
 
   try {
-    // Interroga FastAPI in parallelo.
+    // Interroga tutti gli endpoint FastAPI in parallelo.
     const [
       health,
       status,
@@ -118,11 +121,11 @@ export default async function Home({
       getStatistics(),
     ]);
 
-    // Aggiorna lo stato.
+    // Aggiorna lo stato del terminale.
     online = health.status === "healthy";
     symbol = status.symbol;
 
-    // Recupera i dati.
+    // Memorizza i dati ricevuti da FastAPI.
     candles = marketResponse.candles;
     signals = signalsResponse.signals;
     outcomes = outcomesResponse.outcomes;
@@ -135,24 +138,27 @@ export default async function Home({
       error
     );
 
+    // Mantiene la dashboard disponibile in modalità offline.
     online = false;
   }
 
-  // I segnali sono attualmente prodotti solo su M15.
+  // I segnali attuali sono prodotti solamente sul timeframe M15.
   const chartSignals =
     selectedTimeframe === "M15"
       ? signals
       : [];
 
-  // Calcola i conteggi.
+  // Conta i segnali LONG.
   const longCount = signals.filter(
     (signal) => signal.signal === "LONG"
   ).length;
 
+  // Conta i segnali SHORT.
   const shortCount = signals.filter(
     (signal) => signal.signal === "SHORT"
   ).length;
 
+  // Conta i segnali NO_TRADE.
   const noTradeCount = signals.filter(
     (signal) =>
       signal.signal === "NO_TRADE"
@@ -248,7 +254,7 @@ export default async function Home({
           />
 
           {candles.length > 0 ? (
-            <CandlestickChart
+            <UnifiedMarketChart
               key={selectedTimeframe}
               candles={candles}
               signals={chartSignals}
