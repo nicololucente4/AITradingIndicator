@@ -1,4 +1,4 @@
-"""Avvia il servizio continuo AI Trading Indicator in modalità PAPER_ONLY."""
+"""Avvia il servizio continuo AI Trading Indicator in modalitÃ  PAPER_ONLY."""
 
 # Importa argparse per gestire le opzioni da terminale.
 import argparse
@@ -92,9 +92,6 @@ from src.monitoring.outcome_tracker import (
     OutcomeTrackerConfig,
 )
 
-# Percorso predefinito dell'archivio condiviso delle candele.
-DEFAULT_MARKET_DATA_DATABASE_PATH = Path("data/live_paper/market_data.db")
-
 
 class ContinuousServiceError(RuntimeError):
     """Errore generato dalla costruzione del servizio continuo."""
@@ -106,7 +103,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     # Crea il parser principale.
     parser = argparse.ArgumentParser(
         description=(
-            "Avvia AI Trading Indicator in modalità Live Paper continua. "
+            "Avvia AI Trading Indicator in modalitÃ  Live Paper continua. "
             "Nessun ordine viene inviato."
         )
     )
@@ -131,16 +128,6 @@ def create_argument_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help=("Valida configurazione e componenti senza avviare il servizio continuo."),
-    )
-
-    # Permette di specificare un archivio candele differente.
-    parser.add_argument(
-        "--market-data-db",
-        default=str(DEFAULT_MARKET_DATA_DATABASE_PATH),
-        help=(
-            "Percorso del database SQLite delle candele. "
-            "Valore predefinito: data/live_paper/market_data.db"
-        ),
     )
 
     return parser
@@ -203,7 +190,7 @@ def configure_logging() -> logging.Logger:
 
 
 def import_metatrader5_module() -> MetaTrader5Module:
-    """Importa MetaTrader5 solo quando il provider selezionato è MT5."""
+    """Importa MetaTrader5 solo quando il provider selezionato Ã¨ MT5."""
 
     try:
         # Importa dinamicamente il modulo ufficiale.
@@ -260,9 +247,9 @@ def create_persisting_provider(
 ) -> PersistingLiveDataProvider:
     """Crea il provider con persistenza automatica delle candele."""
 
-    # Il percorso non può essere vuoto.
+    # Il percorso non puÃ² essere vuoto.
     if not str(market_data_database_path).strip():
-        raise ContinuousServiceError("Il percorso del database candele non può essere vuoto.")
+        raise ContinuousServiceError("Il percorso del database candele non puÃ² essere vuoto.")
 
     # Recupera il codice timeframe dal catalogo centrale.
     timeframe = get_timeframe_by_minutes(settings.timeframe_minutes)
@@ -287,7 +274,7 @@ def create_processor(
 ) -> RegisteredLiveMLProcessor:
     """Crea il processore del modello ML registrato."""
 
-    # Il modello corrente è sviluppato esclusivamente per M15.
+    # Il modello corrente Ã¨ sviluppato esclusivamente per M15.
     if settings.timeframe_minutes != 15:
         raise ContinuousServiceError(
             "Il modello gradient_boosting_0.1.0 richiede TIMEFRAME_MINUTES=15."
@@ -366,7 +353,7 @@ def print_startup_summary(
     print("=" * 68)
 
     # Mostra i parametri non sensibili.
-    print(f"Modalità: {settings_summary['app_mode']}")
+    print(f"ModalitÃ : {settings_summary['app_mode']}")
 
     print(f"Provider: {settings_summary['data_provider']}")
 
@@ -455,8 +442,8 @@ def main() -> int:
         if settings.real_orders_enabled:
             raise ContinuousServiceError("REAL_ORDERS_ENABLED deve essere false.")
 
-        # Converte il percorso dell'archivio candele.
-        market_data_database_path = Path(arguments.market_data_db)
+        # Recupera dalla configurazione il database delle candele.
+        market_data_database_path = settings.market_data_database_path
 
         # Crea provider e archivio persistente.
         persisting_provider = create_persisting_provider(
