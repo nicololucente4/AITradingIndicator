@@ -1,0 +1,7 @@
+# Installa tutte le dipendenze generali del progetto.
+-r requirements-dev.txt
+
+# Integrazione Python ufficiale con MetaTrader 5.
+# Questa dipendenza deve essere installata solamente sul PC Windows
+# utilizzato per il collegamento al terminale MT5.
+MetaTrader5
