@@ -6,6 +6,9 @@ pyarrow
 # Configurazioni YAML.
 PyYAML
 
+# Caricamento sicuro delle variabili dal file .env locale.
+python-dotenv
+
 # Test automatici.
 pytest
 pytest-cov
