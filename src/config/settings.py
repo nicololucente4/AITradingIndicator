@@ -6,7 +6,7 @@ import os
 # Importa dataclass per rappresentare una configurazione immutabile.
 from dataclasses import dataclass
 
-# Importa Path per validare e gestire i percorsi locali.
+# Importa Path per gestire i percorsi locali.
 from pathlib import Path
 
 
@@ -19,7 +19,7 @@ def _read_text(
     variable_name: str,
     default: str,
 ) -> str:
-    """Legge e normalizza una variabile testuale."""
+    """Legge e normalizza una variabile testuale obbligatoria."""
 
     # Recupera il valore oppure usa quello predefinito.
     selected_value = environment.get(
@@ -30,11 +30,10 @@ def _read_text(
     # Elimina gli spazi esterni.
     normalized_value = selected_value.strip()
 
-    # Le variabili testuali obbligatorie non possono essere vuote.
+    # Le variabili obbligatorie non possono essere vuote.
     if not normalized_value:
         raise SettingsError(f"La variabile {variable_name} non può essere vuota.")
 
-    # Restituisce il valore normalizzato.
     return normalized_value
 
 
@@ -44,17 +43,16 @@ def _read_optional_text(
 ) -> str | None:
     """Legge una variabile testuale opzionale."""
 
-    # Recupera il valore, usando una stringa vuota come fallback.
+    # Recupera e normalizza il valore.
     selected_value = environment.get(
         variable_name,
         "",
     ).strip()
 
-    # Converte una stringa vuota in None.
+    # Una stringa vuota viene rappresentata con None.
     if not selected_value:
         return None
 
-    # Restituisce il valore disponibile.
     return selected_value
 
 
@@ -72,7 +70,7 @@ def _read_positive_integer(
     ).strip()
 
     try:
-        # Converte il valore in numero intero.
+        # Converte il valore in intero.
         selected_value = int(raw_value)
 
     except ValueError as error:
@@ -80,11 +78,10 @@ def _read_positive_integer(
             f"La variabile {variable_name} deve essere un numero intero."
         ) from error
 
-    # Il valore deve essere strettamente positivo.
+    # Il valore deve essere positivo.
     if selected_value <= 0:
         raise SettingsError(f"La variabile {variable_name} deve essere maggiore di zero.")
 
-    # Restituisce il valore validato.
     return selected_value
 
 
@@ -117,7 +114,6 @@ def _read_optional_positive_integer(
     if selected_value <= 0:
         raise SettingsError(f"La variabile {variable_name} deve essere maggiore di zero.")
 
-    # Restituisce il valore validato.
     return selected_value
 
 
@@ -182,16 +178,19 @@ class ApplicationSettings:
     # Intervallo tra due polling.
     poll_interval_seconds: int
 
-    # Storico minimo richiesto.
+    # Storico minimo richiesto dal modello.
     minimum_history_bars: int
 
     # Durata massima degli esiti.
     maximum_holding_bars: int
 
-    # Database SQLite locale.
+    # Database contenente segnali ed esiti.
     live_paper_database_path: Path
 
-    # Dataset del provider file.
+    # Database contenente le candele persistenti.
+    market_data_database_path: Path
+
+    # Dataset sorgente del provider FILE.
     file_provider_path: Path
 
     # Numero account MT5 opzionale.
@@ -218,10 +217,12 @@ class ApplicationSettings:
     # Gli ordini reali devono restare disabilitati.
     real_orders_enabled: bool
 
-    def safe_summary(self) -> dict[str, object]:
+    def safe_summary(
+        self,
+    ) -> dict[str, object]:
         """Restituisce un riepilogo privo di credenziali."""
 
-        # Non include mai la password MT5.
+        # La password e il numero account non vengono mai esposti.
         return {
             "app_mode": self.app_mode,
             "data_provider": self.data_provider,
@@ -231,6 +232,7 @@ class ApplicationSettings:
             "minimum_history_bars": (self.minimum_history_bars),
             "maximum_holding_bars": (self.maximum_holding_bars),
             "live_paper_database_path": str(self.live_paper_database_path),
+            "market_data_database_path": str(self.market_data_database_path),
             "file_provider_path": str(self.file_provider_path),
             "mt5_login_configured": (self.mt5_login is not None),
             "mt5_password_configured": (self.mt5_password is not None),
@@ -239,6 +241,7 @@ class ApplicationSettings:
                 None if self.mt5_terminal_path is None else str(self.mt5_terminal_path)
             ),
             "mt5_bars_per_poll": (self.mt5_bars_per_poll),
+            "mt5_timeout_milliseconds": (self.mt5_timeout_milliseconds),
             "paper_trading_only": (self.paper_trading_only),
             "real_orders_enabled": (self.real_orders_enabled),
         }
@@ -249,18 +252,18 @@ def load_settings(
 ) -> ApplicationSettings:
     """Carica e valida la configurazione applicativa."""
 
-    # Usa una copia delle variabili reali se non viene passato
-    # un ambiente specifico, ad esempio durante i test.
+    # Usa una copia dell'ambiente reale quando non viene
+    # passato un dizionario specifico.
     selected_environment = dict(os.environ) if environment is None else dict(environment)
 
-    # Legge e normalizza la modalità operativa.
+    # Legge la modalità operativa.
     app_mode = _read_text(
         selected_environment,
         "APP_MODE",
         "PAPER_ONLY",
     ).upper()
 
-    # La release corrente supporta solamente PAPER_ONLY.
+    # La release supporta solamente PAPER_ONLY.
     if app_mode != "PAPER_ONLY":
         raise SettingsError("APP_MODE deve essere PAPER_ONLY.")
 
@@ -271,7 +274,7 @@ def load_settings(
         "FILE",
     ).upper()
 
-    # Verifica la lista dei provider supportati.
+    # Verifica i provider supportati.
     if data_provider not in {
         "FILE",
         "MT5",
@@ -295,7 +298,7 @@ def load_settings(
     if not paper_trading_only:
         raise SettingsError("PAPER_TRADING_ONLY deve essere true.")
 
-    # La release non può abilitare ordini reali.
+    # Gli ordini reali non possono essere abilitati.
     if real_orders_enabled:
         raise SettingsError("REAL_ORDERS_ENABLED deve essere false.")
 
@@ -322,7 +325,7 @@ def load_settings(
 
     mt5_terminal_path = None if mt5_terminal_path_text is None else Path(mt5_terminal_path_text)
 
-    # Il provider MT5 richiede le informazioni di accesso.
+    # Il provider MT5 richiede tutte le informazioni di accesso.
     if data_provider == "MT5":
         missing_variables: list[str] = []
 
@@ -342,7 +345,7 @@ def load_settings(
                 f"Configurazione MT5 incompleta. Variabili mancanti: {missing_text}."
             )
 
-    # Crea e restituisce la configurazione immutabile.
+    # Crea la configurazione immutabile.
     return ApplicationSettings(
         app_mode=app_mode,
         data_provider=data_provider,
@@ -376,6 +379,13 @@ def load_settings(
                 selected_environment,
                 "LIVE_PAPER_DATABASE_PATH",
                 "data/live_paper/live_paper.db",
+            )
+        ),
+        market_data_database_path=Path(
+            _read_text(
+                selected_environment,
+                "MARKET_DATA_DATABASE_PATH",
+                "data/live_paper/market_data.db",
             )
         ),
         file_provider_path=Path(
