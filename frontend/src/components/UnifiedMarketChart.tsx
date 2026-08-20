@@ -52,10 +52,20 @@ const INITIAL_VISIBLE_BARS: Record<
   AvailableTimeframe,
   number
 > = {
+  M1: 180,
+  M2: 180,
+  M3: 160,
+  M5: 150,
+  M10: 130,
   M15: 120,
+  M30: 110,
   H1: 100,
+  H2: 90,
   H4: 70,
+  H8: 60,
+  H12: 55,
   D1: 45,
+  W1: 35,
 };
 
 /**

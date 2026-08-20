@@ -1,19 +1,23 @@
-// Timeframe attualmente restituiti da FastAPI.
+// Tutti i timeframe professionali supportati dal sistema.
 export type AvailableTimeframe =
-  | "M15"
-  | "H1"
-  | "H4"
-  | "D1";
-
-// Timeframe predisposti per il futuro provider reale.
-export type FutureTimeframe =
   | "M1"
-  | "M5";
+  | "M2"
+  | "M3"
+  | "M5"
+  | "M10"
+  | "M15"
+  | "M30"
+  | "H1"
+  | "H2"
+  | "H4"
+  | "H8"
+  | "H12"
+  | "D1"
+  | "W1";
 
-// Insieme completo dei timeframe mostrati nel frontend.
+// Alias mantenuto per compatibilità con i componenti esistenti.
 export type MarketTimeframe =
-  | AvailableTimeframe
-  | FutureTimeframe;
+  AvailableTimeframe;
 
 // Rappresenta una candela OHLCV.
 export type Candle = {
@@ -100,10 +104,14 @@ export type LivePaperStatistics = {
 
 // Informazioni restituite per ogni timeframe.
 export type TimeframeInformation = {
-  code: MarketTimeframe;
+  code: AvailableTimeframe;
+  label: string;
   minutes: number;
   available: boolean;
   native: boolean;
+  model_enabled: boolean;
+  source_timeframe: AvailableTimeframe | null;
+  stored_candle_count: number;
   reason: string | null;
 };
 
@@ -112,9 +120,11 @@ export type HealthResponse = {
   status: string;
   mode: string;
   market_data_available: boolean;
+  market_data_database_available: boolean;
+  csv_fallback_available: boolean;
   database_available: boolean;
   symbol: string;
-  timeframe: string;
+  timeframe: AvailableTimeframe;
 };
 
 // Risposta System Status.
@@ -124,7 +134,9 @@ export type SystemStatusResponse = {
   paper_trading_only: boolean;
   real_orders_enabled: boolean;
   symbol: string;
-  timeframe: string;
+  timeframe: AvailableTimeframe;
+  model_timeframe: AvailableTimeframe;
+  supported_timeframes: AvailableTimeframe[];
   available_timeframes: AvailableTimeframe[];
   signal_count: number;
   outcome_count: number;
@@ -135,7 +147,10 @@ export type SystemStatusResponse = {
 export type CandlesResponse = {
   symbol: string;
   timeframe: AvailableTimeframe;
-  source_timeframe: string;
+  source_timeframe: AvailableTimeframe | null;
+  source_type: "SQLITE_MARKET_DATA" | "CSV_FALLBACK";
+  native: boolean;
+  model_enabled: boolean;
   timezone: string;
   count: number;
   candles: Candle[];
@@ -143,7 +158,9 @@ export type CandlesResponse = {
 
 // Risposta Timeframes.
 export type TimeframesResponse = {
-  source_timeframe: string;
+  source_timeframe: AvailableTimeframe;
+  source_type: "SQLITE_MARKET_DATA" | "CSV_FALLBACK";
+  model_timeframe: AvailableTimeframe;
   timeframes: TimeframeInformation[];
 };
 

@@ -8,59 +8,21 @@ import {
 
 import type {
   AvailableTimeframe,
-  MarketTimeframe,
+  TimeframeInformation,
 } from "@/src/types/market";
-
-// Elenco completo dei timeframe mostrati nel terminale.
-const TIMEFRAME_OPTIONS: Array<{
-  code: MarketTimeframe;
-  available: boolean;
-  description: string;
-}> = [
-  {
-    code: "M1",
-    available: false,
-    description:
-      "Richiede candele native M1 dal provider reale",
-  },
-  {
-    code: "M5",
-    available: false,
-    description:
-      "Richiede candele native M5 dal provider reale",
-  },
-  {
-    code: "M15",
-    available: true,
-    description: "Timeframe nativo disponibile",
-  },
-  {
-    code: "H1",
-    available: true,
-    description: "Aggregato da M15",
-  },
-  {
-    code: "H4",
-    available: true,
-    description: "Aggregato da M15",
-  },
-  {
-    code: "D1",
-    available: true,
-    description: "Aggregato da M15",
-  },
-];
 
 // Proprietà ricevute dal componente.
 type TimeframeSelectorProps = {
   selectedTimeframe: AvailableTimeframe;
+  timeframes: TimeframeInformation[];
 };
 
 /**
- * Visualizza e modifica il timeframe tramite il parametro URL.
+ * Visualizza il selettore professionale dei timeframe.
  */
 export default function TimeframeSelector({
   selectedTimeframe,
+  timeframes,
 }: TimeframeSelectorProps) {
   // Recupera gli strumenti di navigazione Next.js.
   const router = useRouter();
@@ -68,7 +30,7 @@ export default function TimeframeSelector({
   const searchParams = useSearchParams();
 
   /**
-   * Seleziona un nuovo timeframe disponibile.
+   * Aggiorna il timeframe tramite il parametro URL.
    */
   function selectTimeframe(
     timeframe: AvailableTimeframe
@@ -95,39 +57,57 @@ export default function TimeframeSelector({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-md border border-slate-800 bg-slate-950 p-1">
-      {TIMEFRAME_OPTIONS.map((option) => {
+    <div className="flex max-w-full flex-wrap items-center gap-1 rounded-md border border-slate-800 bg-slate-950 p-1">
+      {timeframes.map((option) => {
         // Verifica se il pulsante è selezionato.
         const isSelected =
           option.code === selectedTimeframe;
 
-        // I timeframe disponibili possono essere convertiti
-        // nel tipo accettato dal backend.
-        const availableTimeframe =
-          option.code as AvailableTimeframe;
+        // Prepara una descrizione completa.
+        const sourceDescription =
+          option.native
+            ? "Dati nativi"
+            : option.source_timeframe !== null
+              ? `Aggregato da ${option.source_timeframe}`
+              : option.reason ??
+                "Timeframe non disponibile";
 
         return (
           <button
             key={option.code}
             type="button"
-            title={option.description}
+            title={
+              option.model_enabled
+                ? `${sourceDescription}. Timeframe del modello ML.`
+                : sourceDescription
+            }
             disabled={!option.available}
             onClick={() => {
               if (option.available) {
                 selectTimeframe(
-                  availableTimeframe
+                  option.code
                 );
               }
             }}
             className={
               isSelected
-                ? "rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white"
+                ? "relative rounded bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white"
                 : option.available
-                  ? "rounded px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
-                  : "cursor-not-allowed rounded px-3 py-1.5 text-xs font-medium text-slate-700"
+                  ? "relative rounded px-2.5 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+                  : "relative cursor-not-allowed rounded px-2.5 py-1.5 text-xs font-medium text-slate-700"
             }
           >
-            {option.code}
+            {option.label}
+
+            {option.model_enabled && (
+              <span className="ml-1 rounded bg-purple-500/20 px-1 py-0.5 text-[9px] font-bold text-purple-300">
+                ML
+              </span>
+            )}
+
+            {option.native && option.available && (
+              <span className="absolute right-0.5 top-0.5 h-1 w-1 rounded-full bg-green-400" />
+            )}
           </button>
         );
       })}

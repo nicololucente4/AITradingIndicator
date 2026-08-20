@@ -16,6 +16,7 @@ import {
   getSignals,
   getStatistics,
   getSystemStatus,
+  getTimeframes,
 } from "@/src/services/api";
 
 // Importa i tipi condivisi.
@@ -25,6 +26,7 @@ import type {
   LivePaperStatistics,
   OutcomeRecord,
   SignalRecord,
+  TimeframeInformation,
 } from "@/src/types/market";
 
 // Forza il rendering dinamico della dashboard.
@@ -33,44 +35,221 @@ export const dynamic = "force-dynamic";
 // Disabilita la cache statica della pagina.
 export const revalidate = 0;
 
-// Elenca i timeframe attualmente disponibili.
-const AVAILABLE_TIMEFRAMES: AvailableTimeframe[] = [
-  "M15",
-  "H1",
-  "H4",
-  "D1",
-];
+// Elenca tutti i timeframe professionali riconosciuti.
+const SUPPORTED_TIMEFRAMES:
+  AvailableTimeframe[] = [
+    "M1",
+    "M2",
+    "M3",
+    "M5",
+    "M10",
+    "M15",
+    "M30",
+    "H1",
+    "H2",
+    "H4",
+    "H8",
+    "H12",
+    "D1",
+    "W1",
+  ];
+
+// Catalogo minimo usato se FastAPI non è raggiungibile.
+const FALLBACK_TIMEFRAMES:
+  TimeframeInformation[] =
+  SUPPORTED_TIMEFRAMES.map(
+    (timeframe) => ({
+      code: timeframe,
+      label: getTimeframeLabel(
+        timeframe
+      ),
+      minutes:
+        getTimeframeMinutes(
+          timeframe
+        ),
+      available:
+        timeframe === "M15",
+      native:
+        timeframe === "M15",
+      model_enabled:
+        timeframe === "M15",
+      source_timeframe:
+        timeframe === "M15"
+          ? "M15"
+          : null,
+      stored_candle_count: 0,
+      reason:
+        timeframe === "M15"
+          ? null
+          : "Disponibilità non verificabile senza collegamento a FastAPI.",
+    })
+  );
 
 // Rappresenta i parametri URL ricevuti dalla pagina.
 type HomePageProps = {
   searchParams: Promise<{
-    timeframe?: string | string[];
+    timeframe?:
+      | string
+      | string[];
   }>;
 };
 
 /**
- * Controlla e normalizza il timeframe ricevuto dall'URL.
+ * Restituisce l'etichetta professionale del timeframe.
  */
-function selectTimeframe(
-  value: string | string[] | undefined
-): AvailableTimeframe {
-  // Se il parametro è ripetuto, utilizza il primo valore.
-  const selectedValue = Array.isArray(value)
-    ? value[0]
-    : value;
+function getTimeframeLabel(
+  timeframe: AvailableTimeframe
+): string {
+  // Associa il codice interno all'etichetta grafica.
+  const labels: Record<
+    AvailableTimeframe,
+    string
+  > = {
+    M1: "1m",
+    M2: "2m",
+    M3: "3m",
+    M5: "5m",
+    M10: "10m",
+    M15: "15m",
+    M30: "30m",
+    H1: "1h",
+    H2: "2h",
+    H4: "4h",
+    H8: "8h",
+    H12: "12h",
+    D1: "1D",
+    W1: "1W",
+  };
 
-  // Utilizza M15 quando il valore è assente o non supportato.
+  return labels[timeframe];
+}
+
+/**
+ * Restituisce la durata del timeframe in minuti.
+ */
+function getTimeframeMinutes(
+  timeframe: AvailableTimeframe
+): number {
+  // Associa ogni codice alla relativa durata.
+  const minutes: Record<
+    AvailableTimeframe,
+    number
+  > = {
+    M1: 1,
+    M2: 2,
+    M3: 3,
+    M5: 5,
+    M10: 10,
+    M15: 15,
+    M30: 30,
+    H1: 60,
+    H2: 120,
+    H4: 240,
+    H8: 480,
+    H12: 720,
+    D1: 1440,
+    W1: 10080,
+  };
+
+  return minutes[timeframe];
+}
+
+/**
+ * Controlla se una stringa rappresenta un timeframe supportato.
+ */
+function isSupportedTimeframe(
+  value: string
+): value is AvailableTimeframe {
+  return SUPPORTED_TIMEFRAMES.includes(
+    value as AvailableTimeframe
+  );
+}
+
+/**
+ * Recupera il valore timeframe dal parametro URL.
+ */
+function readRequestedTimeframe(
+  value:
+    | string
+    | string[]
+    | undefined
+): AvailableTimeframe {
+  // Se il parametro è ripetuto, usa il primo valore.
+  const selectedValue =
+    Array.isArray(value)
+      ? value[0]
+      : value;
+
+  // Usa M15 se il parametro è assente.
   if (
-    selectedValue === undefined ||
-    !AVAILABLE_TIMEFRAMES.includes(
-      selectedValue as AvailableTimeframe
+    selectedValue === undefined
+  ) {
+    return "M15";
+  }
+
+  // Usa M15 se il codice non è supportato.
+  if (
+    !isSupportedTimeframe(
+      selectedValue
     )
   ) {
     return "M15";
   }
 
-  // Restituisce il timeframe validato.
-  return selectedValue as AvailableTimeframe;
+  return selectedValue;
+}
+
+/**
+ * Seleziona un timeframe realmente disponibile.
+ */
+function selectAvailableTimeframe(
+  requestedTimeframe:
+    AvailableTimeframe,
+  timeframes:
+    TimeframeInformation[]
+): AvailableTimeframe {
+  // Cerca il timeframe richiesto nel catalogo API.
+  const requestedInformation =
+    timeframes.find(
+      (timeframe) =>
+        timeframe.code ===
+        requestedTimeframe
+    );
+
+  // Mantiene il timeframe se disponibile.
+  if (
+    requestedInformation
+      ?.available === true
+  ) {
+    return requestedTimeframe;
+  }
+
+  // Preferisce M15 come fallback operativo.
+  const m15Information =
+    timeframes.find(
+      (timeframe) =>
+        timeframe.code === "M15"
+    );
+
+  if (
+    m15Information?.available ===
+    true
+  ) {
+    return "M15";
+  }
+
+  // Usa il primo timeframe disponibile.
+  const firstAvailable =
+    timeframes.find(
+      (timeframe) =>
+        timeframe.available
+    );
+
+  // Se non esistono dati, mantiene M15.
+  return (
+    firstAvailable?.code ??
+    "M15"
+  );
 }
 
 /**
@@ -83,11 +262,57 @@ export default async function Home({
   const resolvedSearchParams =
     await searchParams;
 
-  // Determina il timeframe selezionato.
-  const selectedTimeframe =
-    selectTimeframe(
+  // Recupera il timeframe richiesto dall'URL.
+  const requestedTimeframe =
+    readRequestedTimeframe(
       resolvedSearchParams.timeframe
     );
+
+  // Definisce il catalogo di fallback.
+  let timeframes =
+    FALLBACK_TIMEFRAMES;
+
+  // Indica la sorgente dei dati di mercato.
+  let marketSource:
+    | "SQLITE_MARKET_DATA"
+    | "CSV_FALLBACK"
+    | "UNAVAILABLE" =
+    "UNAVAILABLE";
+
+  try {
+    // Recupera disponibilità e origine dei timeframe.
+    const timeframeResponse =
+      await getTimeframes();
+
+    // Memorizza il catalogo restituito da FastAPI.
+    timeframes =
+      timeframeResponse.timeframes;
+
+    // Memorizza la sorgente dei dati.
+    marketSource =
+      timeframeResponse.source_type;
+  } catch (error) {
+    // Mantiene disponibile il catalogo minimo locale.
+    console.error(
+      "Impossibile caricare il catalogo timeframe:",
+      error
+    );
+  }
+
+  // Seleziona una risoluzione realmente disponibile.
+  const selectedTimeframe =
+    selectAvailableTimeframe(
+      requestedTimeframe,
+      timeframes
+    );
+
+  // Recupera le informazioni del timeframe selezionato.
+  const selectedTimeframeInformation =
+    timeframes.find(
+      (timeframe) =>
+        timeframe.code ===
+        selectedTimeframe
+    ) ?? null;
 
   // Definisce i valori di fallback.
   let online = false;
@@ -96,12 +321,14 @@ export default async function Home({
   // Inizializza i dati applicativi.
   let candles: Candle[] = [];
   let signals: SignalRecord[] = [];
-  let outcomes: OutcomeRecord[] = [];
-  let statistics: LivePaperStatistics | null =
-    null;
+  let outcomes: OutcomeRecord[] =
+    [];
+  let statistics:
+    | LivePaperStatistics
+    | null = null;
 
   try {
-    // Interroga tutti gli endpoint FastAPI in parallelo.
+    // Interroga gli endpoint FastAPI in parallelo.
     const [
       health,
       status,
@@ -122,15 +349,28 @@ export default async function Home({
     ]);
 
     // Aggiorna lo stato del terminale.
-    online = health.status === "healthy";
+    online =
+      health.status ===
+      "healthy";
+
     symbol = status.symbol;
 
     // Memorizza i dati ricevuti da FastAPI.
-    candles = marketResponse.candles;
-    signals = signalsResponse.signals;
-    outcomes = outcomesResponse.outcomes;
+    candles =
+      marketResponse.candles;
+
+    signals =
+      signalsResponse.signals;
+
+    outcomes =
+      outcomesResponse.outcomes;
+
     statistics =
       statisticsResponse.statistics;
+
+    // Usa la sorgente effettiva della risposta candele.
+    marketSource =
+      marketResponse.source_type;
   } catch (error) {
     // Registra l'errore nel terminale Next.js.
     console.error(
@@ -149,32 +389,68 @@ export default async function Home({
       : [];
 
   // Conta i segnali LONG.
-  const longCount = signals.filter(
-    (signal) => signal.signal === "LONG"
-  ).length;
+  const longCount =
+    signals.filter(
+      (signal) =>
+        signal.signal ===
+        "LONG"
+    ).length;
 
   // Conta i segnali SHORT.
-  const shortCount = signals.filter(
-    (signal) => signal.signal === "SHORT"
-  ).length;
+  const shortCount =
+    signals.filter(
+      (signal) =>
+        signal.signal ===
+        "SHORT"
+    ).length;
 
   // Conta i segnali NO_TRADE.
-  const noTradeCount = signals.filter(
-    (signal) =>
-      signal.signal === "NO_TRADE"
-  ).length;
+  const noTradeCount =
+    signals.filter(
+      (signal) =>
+        signal.signal ===
+        "NO_TRADE"
+    ).length;
+
+  // Prepara la descrizione della sorgente del timeframe.
+  const timeframeSourceText =
+    selectedTimeframeInformation
+      ?.native === true
+      ? "Dati nativi"
+      : selectedTimeframeInformation
+            ?.source_timeframe !==
+          null &&
+        selectedTimeframeInformation
+          ?.source_timeframe !==
+          undefined
+        ? `Aggregato da ${selectedTimeframeInformation.source_timeframe}`
+        : "Sorgente non disponibile";
+
+  // Prepara l'etichetta dello storage.
+  const marketSourceText =
+    marketSource ===
+    "SQLITE_MARKET_DATA"
+      ? "Archivio live"
+      : marketSource ===
+          "CSV_FALLBACK"
+        ? "CSV demo"
+        : "Dati non disponibili";
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <Header
         symbol={symbol}
-        timeframe={selectedTimeframe}
+        timeframe={
+          selectedTimeframe
+        }
         online={online}
       />
 
       <div className="space-y-5 p-5">
         <section className="grid grid-cols-2 gap-4 md:grid-cols-5">
-          <MarketStatus online={online} />
+          <MarketStatus
+            online={online}
+          />
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
             <div className="text-sm text-slate-400">
@@ -225,10 +501,22 @@ export default async function Home({
               </h2>
 
               <p className="mt-1 text-xs text-slate-400">
-                {selectedTimeframe}
-                {" · UTC · Live Paper · "}
+                {
+                  selectedTimeframeInformation
+                    ?.label ??
+                  selectedTimeframe
+                }
+                {
+                  " · UTC · Live Paper · "
+                }
                 {candles.length}
                 {" candele"}
+              </p>
+
+              <p className="mt-1 text-xs text-slate-500">
+                {timeframeSourceText}
+                {" · "}
+                {marketSourceText}
               </p>
             </div>
 
@@ -236,34 +524,50 @@ export default async function Home({
               selectedTimeframe={
                 selectedTimeframe
               }
+              timeframes={
+                timeframes
+              }
             />
           </div>
 
-          {selectedTimeframe !== "M15" && (
+          {selectedTimeframe !==
+            "M15" && (
             <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-              I segnali ML sono attualmente generati
-              sul timeframe M15 e non vengono
-              sovrapposti alle candele aggregate.
+              I segnali ML sono
+              attualmente generati
+              esclusivamente sul
+              timeframe 15m e non
+              vengono sovrapposti a
+              questa risoluzione.
             </div>
           )}
 
           <MarketSnapshot
             candles={candles}
             symbol={symbol}
-            timeframe={selectedTimeframe}
+            timeframe={
+              selectedTimeframe
+            }
           />
 
           {candles.length > 0 ? (
             <UnifiedMarketChart
-              key={selectedTimeframe}
+              key={
+                selectedTimeframe
+              }
               candles={candles}
               signals={chartSignals}
-              timeframe={selectedTimeframe}
+              timeframe={
+                selectedTimeframe
+              }
             />
           ) : (
             <div className="flex h-[600px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-slate-500">
-              Nessuna candela disponibile per{" "}
-              {selectedTimeframe}
+              Nessuna candela
+              disponibile per{" "}
+              {
+                selectedTimeframe
+              }
             </div>
           )}
         </section>
@@ -285,7 +589,9 @@ export default async function Home({
             </h2>
           </div>
 
-          <SignalsTable signals={signals} />
+          <SignalsTable
+            signals={signals}
+          />
         </section>
 
         <section className="rounded-xl border border-slate-800 bg-slate-900">
@@ -295,7 +601,9 @@ export default async function Home({
             </h2>
           </div>
 
-          <OutcomesTable outcomes={outcomes} />
+          <OutcomesTable
+            outcomes={outcomes}
+          />
         </section>
       </div>
     </main>
