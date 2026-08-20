@@ -184,7 +184,7 @@ def test_poll_returns_closed_validated_bars() -> None:
     provider, _ = create_provider()
     result = provider.poll(pd.Timestamp("2026-08-20 10:45:00", tz="UTC"))
 
-    assert result.provider_name == "MT5_READ_ONLY"
+    assert result.provider_name == "MT5_READ_ONLY_M15"
     assert len(result.new_closed_bars) == 3
     assert result.total_source_bars == 3
     assert result.new_closed_bars.loc[0, "volume"] == 100
