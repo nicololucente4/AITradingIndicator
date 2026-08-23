@@ -1,70 +1,136 @@
 # AI Trading Indicator
 
-Piattaforma modulare per analisi quantitativa, generazione di segnali tramite machine learning e monitoraggio in **Live Paper Trading**.
+Piattaforma modulare per analisi quantitativa, machine learning e monitoraggio in **Live Paper Trading**, con acquisizione dati read-only da MetaTrader 5 e terminale web multi-timeframe.
 
-> **PAPER ONLY**  
-> Il progetto non invia ordini reali. Il collegamento al provider o a MetaTrader 5 deve essere utilizzato esclusivamente per acquisire dati e simulare segnali, ingressi ed esiti.
+> **PAPER ONLY**
+>
+> La release corrente non invia ordini a MetaTrader 5 e non contiene funzioni per l'esecuzione di operazioni reali.
+> MetaTrader 5 viene utilizzato esclusivamente come sorgente read-only di dati di mercato.
 
 ## Stato del progetto
 
-La prima versione include:
+La release `v0.1.0-paper` include:
 
-- validazione dei dati OHLCV;
-- aggregazione multi-timeframe;
+- validazione e normalizzazione dei dati OHLCV;
+- provider CSV per sviluppo e simulazione;
+- provider MetaTrader 5 read-only;
+- esclusione automatica della candela corrente ancora aperta;
+- riconnessione automatica dopo errori temporanei MT5;
+- supporto multi-timeframe professionale;
+- archivio SQLite persistente delle candele;
+- separazione dei dati per simbolo e timeframe;
+- protezione dai duplicati;
 - feature engineering tecnico;
-- generazione di segnali baseline e ML;
-- filtri di confidenza;
-- livelli teorici Entry, Stop Loss e Take Profit;
-- backtest e metriche;
-- walk-forward evaluation;
-- model registry e controllo hash dei modelli;
-- replay temporale senza uso di dati futuri;
-- Live Paper Engine;
+- inferenza tramite modello registrato;
+- verifica SHA-256 del modello;
+- filtro di confidenza;
+- generazione LONG, SHORT e NO_TRADE;
+- calcolo teorico di Entry, Stop Loss e Take Profit;
+- Live Paper Engine continuo;
 - Outcome Tracker;
 - statistiche Live Paper;
-- persistenza SQLite;
+- persistenza SQLite di segnali ed esiti;
 - backend FastAPI read-only;
-- dashboard tecnica Streamlit;
-- frontend Next.js ispirato a un terminale TradingView;
-- grafico candlestick, EMA, volumi, marker dei segnali e livelli operativi;
-- timeframe M15, H1, H4 e D1;
-- test automatici Python e controlli frontend.
+- frontend Next.js e React;
+- grafico candlestick professionale;
+- EMA 10 ed EMA 30;
+- pannello volume sincronizzato;
+- crosshair con dati OHLCV;
+- marker dei segnali;
+- livelli Entry, Stop Loss e Take Profit;
+- selettore dinamico dei timeframe;
+- preflight automatico;
+- script Windows di avvio e arresto;
+- test automatici Python;
+- lint e build del frontend.
+
+## Sicurezza operativa
+
+La release impone sempre:
+
+```text
+APP_MODE=PAPER_ONLY
+PAPER_TRADING_ONLY=true
+REAL_ORDERS_ENABLED=false
+```
+
+Il progetto non implementa:
+
+```text
+order_send
+apertura ordini
+chiusura ordini
+modifica ordini
+gestione posizioni reali
+trading automatico
+```
+
+MetaTrader 5 viene utilizzato soltanto per:
+
+```text
+lettura terminale
+lettura account
+verifica simboli
+lettura candele
+lettura timestamp
+lettura tick volume
+```
 
 ## Architettura
 
 ```text
-Provider CSV / futuro connettore MetaTrader 5
-                    |
-                    v
-         Validazione e normalizzazione OHLCV
-                    |
-                    v
-        Feature engineering e inferenza ML
-                    |
-                    v
-             Live Paper Engine
-                    |
-          +---------+----------+
-          |                    |
-          v                    v
-    Tabella signals     Outcome Tracker
-                               |
-                               v
-                    Tabella signal_outcomes
-          |                    |
-          +---------+----------+
-                    |
-                    v
-                  SQLite
-                    |
-                    v
-             FastAPI read-only
-                    |
-                    v
-        Next.js / React Trading Terminal
+                    MetaTrader 5 read-only
+                              |
+                              v
+                 MetaTrader5PollingDataProvider
+                              |
+                              v
+                  PersistingLiveDataProvider
+                       |              |
+                       |              v
+                       |       market_data.db
+                       |       market_candles
+                       |
+                       v
+                   PollResult
+                       |
+                       v
+                 Live Paper Engine
+                       |
+              +--------+---------+
+              |                  |
+              v                  v
+      Inferenza ML       Outcome Tracker
+              |                  |
+              v                  v
+         signals           signal_outcomes
+              |                  |
+              +--------+---------+
+                       |
+                       v
+                 live_paper.db
+                       |
+                       v
+                 FastAPI read-only
+                       |
+                       v
+                Next.js / React
+                       |
+                       v
+             Trading Terminal locale
 ```
 
-Streamlit rimane una dashboard tecnica temporanea. Il frontend principale è sviluppato in React e Next.js.
+Durante lo sviluppo può essere utilizzato anche il provider CSV:
+
+```text
+CSV M15
+   |
+   v
+FilePollingDataProvider
+   |
+   v
+stessa pipeline Live Paper
+```
 
 ## Stack tecnologico
 
@@ -77,8 +143,22 @@ Streamlit rimane una dashboard tecnica temporanea. Il frontend principale è svi
 - FastAPI
 - Uvicorn
 - SQLite
+- MetaTrader5 Python Integration
+- python-dotenv
+- joblib
+- PyYAML
+
+### Qualità e test
+
 - pytest
+- pytest-cov
 - Ruff
+- test con provider simulati;
+- test anti-duplicato;
+- test di riconnessione MT5;
+- test temporali e anti-look-ahead;
+- test FastAPI;
+- test dello storage SQLite.
 
 ### Frontend
 
@@ -89,57 +169,249 @@ Streamlit rimane una dashboard tecnica temporanea. Il frontend principale è svi
 - Lightweight Charts
 - ESLint
 
-### Persistenza
+### Strumenti di sviluppo
 
-SQLite contiene due registri separati:
+- Visual Studio Code
+- Git
+- GitHub
+- PowerShell
 
-- `signals`: segnali immutabili prodotti dal Live Paper Engine;
-- `signal_outcomes`: esiti conclusivi valutati dall'Outcome Tracker.
+## Timeframe professionali
 
-I database locali non devono essere versionati su Git.
+Il sistema riconosce:
+
+```text
+Minuti:
+M1
+M2
+M3
+M5
+M10
+M15
+M30
+
+Ore:
+H1
+H2
+H4
+H8
+H12
+
+Superiori:
+D1
+W1
+```
+
+Il frontend visualizza le etichette:
+
+```text
+1m  2m  3m  5m  10m  15m  30m
+1h  2h  4h  8h  12h
+1D  1W
+```
+
+### Regole di disponibilità
+
+- un timeframe nativo viene letto direttamente dall'archivio;
+- un timeframe superiore può essere aggregato da una sorgente nativa compatibile;
+- un timeframe inferiore non viene ricostruito artificialmente;
+- M1 non può essere ricostruito da M15;
+- il frontend abilita soltanto i timeframe realmente disponibili;
+- i timeframe indisponibili rimangono visibili ma disabilitati;
+- il pallino verde identifica un timeframe nativo;
+- il badge `ML` identifica il timeframe operativo del modello.
+
+## Timeframe del modello ML
+
+Il modello corrente:
+
+```text
+gradient_boosting_0.1.0
+```
+
+opera esclusivamente su:
+
+```text
+M15
+```
+
+I marker LONG, SHORT, NO_TRADE e i livelli operativi vengono visualizzati solo su M15.
+
+Gli altri timeframe sono disponibili per analisi grafica e contestuale, ma non vengono presentati come se il modello avesse generato segnali su quelle risoluzioni.
+
+## Modello registrato
+
+Il modello operativo è registrato in:
+
+```text
+models/registry.json
+```
+
+File del modello:
+
+```text
+models/gradient_boosting_0.1.0.joblib
+```
+
+Stato corrente:
+
+```text
+CANDIDATE
+```
+
+Prima dell'inferenza il sistema verifica:
+
+- versione del modello;
+- percorso del file;
+- feature richieste;
+- stato consentito;
+- hash SHA-256;
+- integrità del file.
+
+Il modello `CANDIDATE` è utilizzabile esclusivamente per test tecnici e Live Paper Trading.
+
+## Funzionamento Live Paper
+
+1. Il provider recupera le candele.
+2. La candela corrente ancora aperta viene esclusa.
+3. I timestamp vengono normalizzati in UTC.
+4. Le candele vengono validate.
+5. I duplicati vengono eliminati.
+6. Le nuove candele vengono archiviate in SQLite.
+7. Il Live Paper Engine aggiorna lo storico.
+8. Le feature tecniche vengono calcolate senza dati futuri.
+9. Il modello registrato produce una previsione.
+10. Il filtro di confidenza conferma LONG, SHORT oppure NO_TRADE.
+11. Il Risk Engine calcola Entry, Stop Loss e Take Profit teorici.
+12. Il segnale viene salvato senza sovrascrivere record esistenti.
+13. L'Outcome Tracker rivaluta i segnali pendenti.
+14. FastAPI espone candele, segnali, esiti e statistiche.
+15. Next.js visualizza il terminale operativo.
+
+## Persistenza SQLite
+
+Il progetto utilizza due database separati.
+
+### Dati di mercato
+
+```text
+data/live_paper/market_data.db
+```
+
+Tabella:
+
+```text
+market_candles
+```
+
+Chiave univoca:
+
+```text
+symbol + timeframe + timestamp
+```
+
+Dati principali:
+
+```text
+symbol
+timeframe
+timestamp
+open
+high
+low
+close
+volume
+provider_name
+received_at_utc
+```
+
+### Segnali ed esiti
+
+```text
+data/live_paper/live_paper.db
+```
+
+Tabelle:
+
+```text
+signals
+signal_outcomes
+```
+
+I record già salvati non vengono sovrascritti retroattivamente.
+
+I database runtime non devono essere versionati su Git.
 
 ## Struttura principale
 
 ```text
 AITradingIndicator/
-├── data/
-│   ├── sample/                 # Dataset dimostrativi versionati
-│   └── live_paper/             # Database e stato runtime non versionati
-├── frontend/                   # Applicazione Next.js
-│   ├── app/
-│   └── src/
-│       ├── components/
-│       ├── services/
-│       └── types/
-├── reports/                    # Report JSON generati
-├── scripts/                    # Demo, generatori e utility operative
-├── src/
-│   ├── api/                    # Backend FastAPI
-│   ├── app/                    # Dashboard Streamlit tecnica
-│   ├── data/                   # Provider, validazione e timeframe
-│   ├── features/               # Feature engineering
-│   ├── models/                 # Training, inferenza e registry
-│   ├── monitoring/             # Live Paper, outcome e statistiche
-│   └── ...
-├── tests/                      # Test automatici Python
-├── pyproject.toml
-├── requirements-dev.txt
-└── README.md
+|-- data/
+|   |-- sample/
+|   `-- live_paper/
+|-- docs/
+|   `-- PC_TEST_SETUP.md
+|-- frontend/
+|   |-- app/
+|   `-- src/
+|       |-- components/
+|       |-- services/
+|       `-- types/
+|-- logs/
+|-- models/
+|   |-- gradient_boosting_0.1.0.joblib
+|   `-- registry.json
+|-- reports/
+|-- scripts/
+|   |-- check_mt5_connection.py
+|   |-- preflight_check.py
+|   |-- run_continuous_live_paper.py
+|   `-- windows/
+|       |-- start_system.ps1
+|       `-- stop_system.ps1
+|-- src/
+|   |-- api/
+|   |-- app/
+|   |-- backtest/
+|   |-- config/
+|   |-- data/
+|   |-- features/
+|   |-- models/
+|   |-- monitoring/
+|   |-- risk/
+|   `-- signals/
+|-- tests/
+|-- .env.example
+|-- .gitignore
+|-- pyproject.toml
+|-- requirements-dev.txt
+|-- requirements-mt5.txt
+`-- README.md
 ```
 
 ## Prerequisiti
 
-### Backend
+### PC di sviluppo
 
-- Python 3.11
-- Git
+- Windows;
+- Git;
+- Python 3.11 a 64 bit;
+- Node.js;
+- npm;
+- Visual Studio Code, consigliato.
 
-### Frontend
+### PC di test MT5
 
-- Node.js
-- npm
+- Windows;
+- Git;
+- Python 3.11 a 64 bit;
+- Node.js;
+- npm;
+- MetaTrader 5;
+- profilo MT5 utilizzato per il test;
+- accesso al repository GitHub privato.
 
-Le versioni usate nell'ambiente di sviluppo corrente sono:
+Versioni utilizzate durante lo sviluppo:
 
 ```text
 Python 3.11.9
@@ -147,27 +419,30 @@ Node.js 24.16.0
 npm 11.13.0
 ```
 
-## Installazione locale
+## Installazione per sviluppo
 
-### 1. Clonare il repository
+Clonare il repository:
 
 ```powershell
-git clone https://github.com/UTENTE/AITradingIndicator.git
+git clone https://github.com/UTENTE_GITHUB/AITradingIndicator.git
 cd AITradingIndicator
 ```
 
-### 2. Creare l'ambiente Python
-
-Eseguire nella **root del progetto**:
+Creare l'ambiente Python:
 
 ```powershell
 python -m venv .venv
 ```
 
-Attivare l'ambiente in PowerShell:
+Abilitare gli script nella sessione:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+```
+
+Attivare l'ambiente:
+
+```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
@@ -178,9 +453,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 ```
 
-### 3. Installare il frontend
-
-Eseguire nella cartella `frontend`:
+Installare il frontend:
 
 ```powershell
 cd frontend
@@ -188,91 +461,201 @@ npm install
 cd ..
 ```
 
-## Verifica dell'installazione
+## Installazione sul PC di test
 
-### Backend
+La procedura completa è disponibile in:
 
-Eseguire nella **root del progetto**:
-
-```powershell
-python -m ruff check src tests scripts
-python -m pytest -v
+```text
+docs/PC_TEST_SETUP.md
 ```
 
-La release corrente deve completare tutti i test senza errori.
-
-### Frontend
-
-Eseguire nella cartella `frontend`:
+La release deve essere clonata e fissata al tag:
 
 ```powershell
-npm run lint
-npm run build
+git clone https://github.com/UTENTE_GITHUB/AITradingIndicator.git
+cd AITradingIndicator
+git checkout v0.1.0-paper
 ```
 
-## Generazione dei dati dimostrativi
-
-Per creare lo storico sintetico M15 usato dal frontend:
+Sul PC di test installare le dipendenze MT5:
 
 ```powershell
-python -m scripts.generate_frontend_demo_market
+python -m pip install -r requirements-mt5.txt
 ```
 
-Per rigenerare il database dimostrativo coordinato:
+## Configurazione locale
+
+Copiare il modello:
 
 ```powershell
-Remove-Item "data\live_paper\coordinated_live_paper.db" -ErrorAction SilentlyContinue
-python -m scripts.run_coordinated_live_paper
+Copy-Item ".env.example" ".env"
 ```
 
-I dati generati sono sintetici e servono esclusivamente allo sviluppo e alla verifica dell'interfaccia.
+Configurazione generale:
 
-## Avvio del sistema
+```dotenv
+APP_MODE=PAPER_ONLY
+DATA_PROVIDER=MT5
 
-Il sistema richiede due terminali. Un terzo terminale è necessario quando viene eseguito separatamente il motore Live Paper.
+TRADING_SYMBOL=EURUSD
+TIMEFRAME_MINUTES=15
 
-### Terminale 1: FastAPI
+POLL_INTERVAL_SECONDS=5
+MINIMUM_HISTORY_BARS=30
+MAXIMUM_HOLDING_BARS=12
 
-Eseguire nella **root del progetto**:
+LIVE_PAPER_DATABASE_PATH=data/live_paper/live_paper.db
+MARKET_DATA_DATABASE_PATH=data/live_paper/market_data.db
+
+FILE_PROVIDER_PATH=data/sample/EURUSD_M15_sample.csv
+
+MT5_LOGIN=INSERIRE_LOGIN
+MT5_PASSWORD=INSERIRE_PASSWORD
+MT5_SERVER=INSERIRE_SERVER
+MT5_TERMINAL_PATH=C:\Program Files\MetaTrader 5\terminal64.exe
+
+MT5_BARS_PER_POLL=500
+MT5_TIMEOUT_MILLISECONDS=60000
+
+PAPER_TRADING_ONLY=true
+REAL_ORDERS_ENABLED=false
+```
+
+Il file `.env`:
+
+- non deve essere aggiunto a Git;
+- non deve essere inviato ad altre persone;
+- non deve essere incluso negli screenshot;
+- deve rimanere esclusivamente sul computer locale.
+
+## Preflight
+
+Prima di ogni prima installazione o modifica della configurazione:
+
+```powershell
+python -m scripts.preflight_check
+```
+
+Il risultato richiesto è:
+
+```text
+ESITO: SISTEMA PRONTO
+PAPER TRADING: OBBLIGATORIO
+ORDINI REALI: DISABILITATI
+```
+
+Il preflight verifica:
+
+- Python 3.11;
+- configurazione `.env`;
+- modalità PAPER_ONLY;
+- blocco degli ordini reali;
+- provider selezionato;
+- database configurati;
+- Model Registry;
+- modello operativo;
+- integrità SHA-256.
+
+## Verifica read-only di MetaTrader 5
+
+Con MetaTrader 5 aperto e il profilo collegato:
+
+```powershell
+python -m scripts.check_mt5_connection
+```
+
+Il controllo verifica:
+
+- terminale raggiungibile;
+- account disponibile;
+- simbolo disponibile;
+- timeframe disponibile;
+- ricezione delle candele chiuse;
+- timestamp UTC;
+- chiusura della connessione.
+
+Lo script non invia ordini.
+
+## Primo test limitato
+
+Prima dell'avvio continuo:
+
+```powershell
+python -m scripts.run_continuous_live_paper --max-cycles 10
+```
+
+Risultato richiesto:
+
+```text
+Cicli falliti: 0
+ORDINI REALI: DISABILITATI
+```
+
+## Avvio completo su Windows
+
+Dalla root del progetto:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+.\scripts\windows\start_system.ps1
+```
+
+Lo script esegue:
+
+1. preflight;
+2. avvio Live Paper Engine;
+3. avvio FastAPI;
+4. avvio frontend Next.js;
+5. salvataggio dei PID runtime.
+
+Indirizzi locali:
+
+```text
+Frontend: http://localhost:3000
+FastAPI:  http://127.0.0.1:8000
+API Docs: http://127.0.0.1:8000/docs
+```
+
+## Arresto completo su Windows
+
+```powershell
+.\scripts\windows\stop_system.ps1
+```
+
+Utilizzare lo script di arresto prima di:
+
+- spegnere il PC;
+- modificare `.env`;
+- aggiornare il repository;
+- aggiornare MetaTrader 5;
+- intervenire sui database.
+
+## Avvio manuale
+
+### Terminale 1: Live Paper Engine
+
+Dalla root:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python -m uvicorn src.api.app:app --host 127.0.0.1 --port 8000 --reload
+python -m scripts.run_continuous_live_paper
 ```
 
-Indirizzi:
+### Terminale 2: FastAPI
 
-```text
-API:  http://127.0.0.1:8000
-Docs: http://127.0.0.1:8000/docs
+Dalla root:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn src.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-### Terminale 2: Next.js
+### Terminale 3: Next.js
 
-Eseguire nella cartella `frontend`:
+Dalla cartella `frontend`:
 
 ```powershell
 npm run dev
-```
-
-Frontend:
-
-```text
-http://localhost:3000
-```
-
-### Dashboard tecnica Streamlit
-
-Streamlit è mantenuto solo come strumento tecnico interno:
-
-```powershell
-python -m streamlit run src/app/dashboard.py --server.address localhost --server.port 8501
-```
-
-Indirizzo:
-
-```text
-http://localhost:8501
 ```
 
 ## Endpoint FastAPI
@@ -288,141 +671,213 @@ GET /api/v1/outcomes
 GET /api/v1/statistics
 ```
 
-Esempi multi-timeframe:
+Esempi:
 
 ```text
 /api/v1/market/candles?timeframe=M15&limit=500
+/api/v1/market/candles?timeframe=M30&limit=500
 /api/v1/market/candles?timeframe=H1&limit=500
 /api/v1/market/candles?timeframe=H4&limit=500
 /api/v1/market/candles?timeframe=D1&limit=500
 ```
 
-M1 e M5 richiedono dati nativi dal provider reale e non possono essere ricostruiti correttamente da candele M15.
-
-## Funzionamento Live Paper
-
-1. Il provider restituisce esclusivamente candele chiuse.
-2. I dati vengono validati e ordinati temporalmente.
-3. Il processore calcola feature e previsione.
-4. Il filtro di confidenza conferma LONG, SHORT o NO_TRADE.
-5. Il sistema calcola Entry, Stop Loss e Take Profit teorici.
-6. Il Live Paper Engine salva il segnale in SQLite senza sovrascrivere record esistenti.
-7. L'Outcome Tracker controlla le candele successive.
-8. L'esito viene registrato come Take Profit, Stop Loss, scadenza temporale o evento ambiguo conservativo.
-9. FastAPI espone candele, segnali, esiti e statistiche.
-10. Next.js visualizza il terminale operativo.
-
-## Sicurezza operativa
-
-La release deve mantenere sempre queste condizioni:
+L'endpoint:
 
 ```text
-paper_trading_only = true
-real_orders_enabled = false
+/api/v1/market/timeframes
 ```
 
-Non inserire nel repository:
+indica per ogni risoluzione:
 
-- password;
-- credenziali MetaTrader 5;
-- token;
-- API key;
-- file `.env` reali;
-- database SQLite runtime;
-- log contenenti dati sensibili;
-- file di configurazione specifici del broker.
+- disponibilità;
+- etichetta;
+- durata;
+- origine nativa o aggregata;
+- timeframe sorgente;
+- numero di candele archiviate;
+- compatibilità con il modello ML;
+- motivo dell'eventuale indisponibilità.
 
-Usare esclusivamente un file `.env.example` privo di valori sensibili come modello di configurazione.
+## Terminale web
 
-## Collegamento futuro a MetaTrader 5
+Il frontend include:
 
-Il connettore MetaTrader 5 dovrà essere completato e testato inizialmente sul PC di sviluppo usando mock o controlli senza ordini. Sul secondo PC verranno eseguite soltanto:
+- stato backend;
+- simbolo e timeframe;
+- selettore di risoluzione professionale;
+- candlestick;
+- EMA 10;
+- EMA 30;
+- volume sincronizzato;
+- crosshair OHLCV;
+- marker LONG e SHORT;
+- marker NO_TRADE;
+- livelli Entry, Stop Loss e Take Profit;
+- statistiche;
+- tabella segnali;
+- tabella esiti;
+- aggiornamento automatico;
+- indicazione PAPER ONLY.
 
-1. installazione di MetaTrader 5;
-2. accesso al profilo di test;
-3. configurazione locale delle credenziali;
-4. verifica del simbolo e del timeframe;
-5. acquisizione read-only delle candele;
-6. avvio del Live Paper Engine;
-7. test continuativo senza invio di ordini.
+## Verifica qualità
 
-Il collegamento deve inizialmente consentire solo:
+### Backend
 
-```text
-lettura account
-lettura simboli
-lettura candele
-lettura timestamp
-```
-
-L'invio di ordini deve rimanere disabilitato.
-
-## Procedura prevista sul PC di test
-
-Quando la release sarà dichiarata pronta:
+Dalla root:
 
 ```powershell
-git clone https://github.com/UTENTE/AITradingIndicator.git
-cd AITradingIndicator
-git checkout v0.1.0-paper
+python -m ruff check src tests scripts
+python -m pytest -q
 ```
 
-Successivamente verranno eseguiti:
+La release deve completare tutta la suite senza errori.
+
+### Frontend
+
+Dalla cartella `frontend`:
+
+```powershell
+npm run lint
+npm run build
+```
+
+Entrambi devono completarsi senza errori.
+
+## Controllo dei database
+
+### Candele disponibili
+
+```powershell
+python -c "import sqlite3; c=sqlite3.connect('data/live_paper/market_data.db'); print(c.execute('SELECT symbol, timeframe, COUNT(*) FROM market_candles GROUP BY symbol, timeframe').fetchall()); c.close()"
+```
+
+### Segnali ed esiti
+
+```powershell
+python -c "import sqlite3; c=sqlite3.connect('data/live_paper/live_paper.db'); print('Segnali:', c.execute('SELECT COUNT(*) FROM signals').fetchone()[0]); print('Esiti:', c.execute('SELECT COUNT(*) FROM signal_outcomes').fetchone()[0]); c.close()"
+```
+
+### Duplicati
+
+```powershell
+python -c "import sqlite3; c=sqlite3.connect('data/live_paper/market_data.db'); print('Duplicati:', c.execute('SELECT COUNT(*) FROM (SELECT symbol, timeframe, timestamp, COUNT(*) AS n FROM market_candles GROUP BY symbol, timeframe, timestamp HAVING n > 1)').fetchone()[0]); c.close()"
+```
+
+Risultato richiesto:
 
 ```text
-creazione ambiente Python
-installazione requirements
-installazione npm
-creazione configurazione locale
-verifica MetaTrader 5
-avvio connettore read-only
-avvio Live Paper
-avvio FastAPI
-avvio Next.js
+Duplicati: 0
 ```
 
-## Criteri minimi prima del test sul secondo PC
+## Log
 
-Il trasferimento può iniziare solo quando sono disponibili:
+Log principale:
 
-- repository GitHub privato aggiornato;
-- tag di release `v0.1.0-paper`;
-- test Python completi;
-- lint e build frontend completati;
-- `.gitignore` verificato;
-- `.env.example` senza credenziali;
-- connettore MetaTrader 5 read-only;
-- test automatici del connettore con mock;
-- script di avvio del motore continuo;
-- checklist di installazione e collaudo;
-- procedura di arresto e ripristino;
-- conferma esplicita che nessun ordine può essere inviato.
+```text
+logs/continuous_live_paper.log
+```
 
-## Limiti attuali
+Ultime righe:
 
-- il feed dimostrativo usa dati sintetici;
-- M1 e M5 non sono disponibili senza feed nativo;
-- i segnali demo non rappresentano performance reali;
-- il frontend è ancora in evoluzione;
-- il motore continuo e il connettore MetaTrader 5 devono essere completati prima del test sul secondo PC;
-- il progetto non è pronto per operatività con denaro reale.
+```powershell
+Get-Content "logs\continuous_live_paper.log" -Tail 100
+```
 
-## Roadmap immediata
+I log non devono contenere:
 
-1. completare il connettore MetaTrader 5 read-only;
-2. aggiungere `.env.example` e validazione configurazione;
-3. aggiungere test mock del provider MT5;
-4. creare script di avvio continuo e logging;
-5. creare checklist di installazione sul PC di test;
-6. eseguire test locale completo;
-7. pubblicare la release privata su GitHub;
-8. installare la release sul secondo PC;
-9. collegare il profilo MT5 di test;
-10. eseguire paper trading continuativo e raccogliere evidenze.
+- password;
+- token;
+- chiavi;
+- informazioni riservate;
+- credenziali MT5.
+
+## Anteprima del terminale
+
+Le immagini reali verranno aggiunte dopo il collaudo sul PC di test.
+
+Cartella prevista:
+
+```text
+docs/images/
+```
+
+Screenshot pianificati:
+
+```text
+01-terminal-overview.png
+02-professional-timeframes.png
+03-candlestick-volume-ema.png
+04-live-paper-signals.png
+05-statistics.png
+06-signals-outcomes.png
+07-preflight.png
+```
+
+Le immagini non devono mostrare:
+
+- login MT5;
+- password;
+- saldo;
+- equity;
+- nome completo del server;
+- dati personali;
+- percorsi riservati.
+
+## Roadmap successiva
+
+Dopo il collaudo tecnico con MT5 verranno aggiunte strategie configurabili come livello separato dal modello ML.
+
+Architettura prevista:
+
+```text
+Previsione ML
+      +
+Strategie configurabili
+      +
+Filtro di contesto
+      +
+Risk management
+      |
+      v
+LONG / SHORT / NO_TRADE
+```
+
+Ogni strategia dovrà avere:
+
+- nome;
+- versione;
+- parametri configurabili;
+- attivazione e disattivazione;
+- priorità o peso;
+- motivazione della decisione;
+- test automatici;
+- test anti-look-ahead;
+- metriche separate;
+- audit del contributo al segnale finale.
+
+Il sistema dovrà poter confrontare:
+
+```text
+solo modello ML
+solo strategia
+modello ML + strategia
+```
+
+Le strategie non modificheranno retroattivamente i segnali già registrati.
+
+## Limiti della release
+
+- il modello corrente è ancora `CANDIDATE`;
+- la validazione tecnica non dimostra redditività;
+- accuracy e performance storiche non garantiscono risultati futuri;
+- il sistema non è destinato al trading con denaro reale;
+- le strategie configurabili non sono ancora incluse;
+- gli screenshot reali saranno aggiunti dopo il test MT5;
+- i timeframe inferiori richiedono dati nativi dal provider.
 
 ## Versionamento
 
-La prima release destinata al test con feed reale sarà:
+Prima release destinata al collaudo MT5 read-only:
 
 ```text
 v0.1.0-paper
@@ -430,4 +885,8 @@ v0.1.0-paper
 
 ## Disclaimer
 
-Il progetto è destinato a ricerca, sviluppo software, analisi quantitativa e paper trading. I risultati ottenuti su dati storici, sintetici o simulati non garantiscono risultati futuri. La piattaforma non costituisce consulenza finanziaria e non deve essere utilizzata per inviare ordini reali nella release corrente.
+AI Trading Indicator è un progetto destinato a ricerca, sviluppo software, analisi quantitativa e paper trading.
+
+I segnali LONG, SHORT e NO_TRADE sono output sperimentali. Non costituiscono consulenza finanziaria e non garantiscono risultati futuri.
+
+La release corrente non deve essere utilizzata per inviare ordini reali o operare con denaro reale.
