@@ -47,6 +47,12 @@ type HoveredMarketData = {
   volume: number;
 };
 
+// Intervallo logico visibile del grafico.
+type SavedLogicalRange = {
+  from: number;
+  to: number;
+};
+
 // Numero iniziale di candele visibili per timeframe.
 const INITIAL_VISIBLE_BARS: Record<
   AvailableTimeframe,
@@ -68,15 +74,26 @@ const INITIAL_VISIBLE_BARS: Record<
   W1: 35,
 };
 
+// Conserva zoom e posizione durante i refresh Next.js.
+// Ogni timeframe mantiene una vista indipendente.
+const VISIBLE_RANGE_BY_TIMEFRAME = new Map<
+  AvailableTimeframe,
+  SavedLogicalRange
+>();
+
 /**
  * Converte un timestamp ISO in secondi Unix.
  */
 function convertToUtcTimestamp(
   timestamp: string
 ): UTCTimestamp {
-  const milliseconds = Date.parse(timestamp);
+  const milliseconds = Date.parse(
+    timestamp
+  );
 
-  if (Number.isNaN(milliseconds)) {
+  if (
+    Number.isNaN(milliseconds)
+  ) {
     throw new Error(
       `Timestamp non valido: ${timestamp}`
     );
@@ -85,6 +102,26 @@ function convertToUtcTimestamp(
   return Math.floor(
     milliseconds / 1000
   ) as UTCTimestamp;
+}
+
+/**
+ * Ordina le candele cronologicamente.
+ */
+function orderCandles(
+  candles: Candle[]
+): Candle[] {
+  return [...candles].sort(
+    (
+      firstCandle,
+      secondCandle
+    ) =>
+      Date.parse(
+        firstCandle.timestamp
+      ) -
+      Date.parse(
+        secondCandle.timestamp
+      )
+  );
 }
 
 /**
@@ -98,10 +135,13 @@ function prepareCandlestickData(
     CandlestickData<UTCTimestamp>
   >();
 
-  for (const candle of candles) {
-    const time = convertToUtcTimestamp(
-      candle.timestamp
-    );
+  for (
+    const candle of candles
+  ) {
+    const time =
+      convertToUtcTimestamp(
+        candle.timestamp
+      );
 
     uniqueCandles.set(
       Number(time),
@@ -115,14 +155,22 @@ function prepareCandlestickData(
     );
   }
 
-  const preparedCandles = Array.from(
-    uniqueCandles.values()
-  );
+  const preparedCandles =
+    Array.from(
+      uniqueCandles.values()
+    );
 
   preparedCandles.sort(
-    (firstCandle, secondCandle) =>
-      Number(firstCandle.time) -
-      Number(secondCandle.time)
+    (
+      firstCandle,
+      secondCandle
+    ) =>
+      Number(
+        firstCandle.time
+      ) -
+      Number(
+        secondCandle.time
+      )
   );
 
   return preparedCandles;
@@ -139,13 +187,17 @@ function prepareVolumeData(
     HistogramData<UTCTimestamp>
   >();
 
-  for (const candle of candles) {
-    const time = convertToUtcTimestamp(
-      candle.timestamp
-    );
+  for (
+    const candle of candles
+  ) {
+    const time =
+      convertToUtcTimestamp(
+        candle.timestamp
+      );
 
     const color =
-      candle.close >= candle.open
+      candle.close >=
+      candle.open
         ? "rgba(8, 153, 129, 0.65)"
         : "rgba(242, 54, 69, 0.65)";
 
@@ -159,14 +211,22 @@ function prepareVolumeData(
     );
   }
 
-  const preparedVolumes = Array.from(
-    uniqueVolumes.values()
-  );
+  const preparedVolumes =
+    Array.from(
+      uniqueVolumes.values()
+    );
 
   preparedVolumes.sort(
-    (firstVolume, secondVolume) =>
-      Number(firstVolume.time) -
-      Number(secondVolume.time)
+    (
+      firstVolume,
+      secondVolume
+    ) =>
+      Number(
+        firstVolume.time
+      ) -
+      Number(
+        secondVolume.time
+      )
   );
 
   return preparedVolumes;
@@ -179,17 +239,17 @@ function calculateEma(
   candles: Candle[],
   period: number
 ): LineData<UTCTimestamp>[] {
-  if (candles.length === 0) {
+  if (
+    candles.length === 0
+  ) {
     return [];
   }
 
-  const orderedCandles = [...candles].sort(
-    (firstCandle, secondCandle) =>
-      Date.parse(firstCandle.timestamp) -
-      Date.parse(secondCandle.timestamp)
-  );
+  const orderedCandles =
+    orderCandles(candles);
 
-  const multiplier = 2 / (period + 1);
+  const multiplier =
+    2 / (period + 1);
 
   let currentEma =
     orderedCandles[0].close;
@@ -197,15 +257,21 @@ function calculateEma(
   const emaData: LineData<UTCTimestamp>[] =
     [];
 
-  for (const candle of orderedCandles) {
+  for (
+    const candle of
+    orderedCandles
+  ) {
     currentEma =
-      candle.close * multiplier +
-      currentEma * (1 - multiplier);
+      candle.close *
+        multiplier +
+      currentEma *
+        (1 - multiplier);
 
     emaData.push({
-      time: convertToUtcTimestamp(
-        candle.timestamp
-      ),
+      time:
+        convertToUtcTimestamp(
+          candle.timestamp
+        ),
       value: currentEma,
     });
   }
@@ -222,19 +288,26 @@ function prepareSignalMarkers(
   const markers: SeriesMarker<UTCTimestamp>[] =
     [];
 
-  for (const signal of signals) {
-    const time = convertToUtcTimestamp(
-      signal.timestamp
-    );
+  for (
+    const signal of signals
+  ) {
+    const time =
+      convertToUtcTimestamp(
+        signal.timestamp
+      );
 
     const confidence =
-      signal.prediction_confidence === null
+      signal.prediction_confidence ===
+      null
         ? "N/D"
         : `${Math.round(
-            signal.prediction_confidence * 100
+            signal.prediction_confidence *
+              100
           )}%`;
 
-    if (signal.signal === "LONG") {
+    if (
+      signal.signal === "LONG"
+    ) {
       markers.push({
         time,
         position: "belowBar",
@@ -246,7 +319,9 @@ function prepareSignalMarkers(
       continue;
     }
 
-    if (signal.signal === "SHORT") {
+    if (
+      signal.signal === "SHORT"
+    ) {
       markers.push({
         time,
         position: "aboveBar",
@@ -258,6 +333,7 @@ function prepareSignalMarkers(
       continue;
     }
 
+    // NO_TRADE rimane visibile come marker discreto.
     markers.push({
       time,
       position: "inBar",
@@ -268,9 +344,16 @@ function prepareSignalMarkers(
   }
 
   markers.sort(
-    (firstMarker, secondMarker) =>
-      Number(firstMarker.time) -
-      Number(secondMarker.time)
+    (
+      firstMarker,
+      secondMarker
+    ) =>
+      Number(
+        firstMarker.time
+      ) -
+      Number(
+        secondMarker.time
+      )
   );
 
   return markers;
@@ -282,24 +365,40 @@ function prepareSignalMarkers(
 function getLatestDirectionalSignal(
   signals: SignalRecord[]
 ): SignalRecord | null {
-  const directionalSignals = signals
-    .filter(
-      (signal) =>
+  const directionalSignals =
+    signals
+      .filter(
+        (signal) =>
+          (
+            signal.signal ===
+              "LONG" ||
+            signal.signal ===
+              "SHORT"
+          ) &&
+          typeof signal.entry_price ===
+            "number" &&
+          typeof signal.stop_loss ===
+            "number" &&
+          typeof signal.take_profit_1 ===
+            "number"
+      )
+      .sort(
         (
-          signal.signal === "LONG" ||
-          signal.signal === "SHORT"
-        ) &&
-        typeof signal.entry_price === "number" &&
-        typeof signal.stop_loss === "number" &&
-        typeof signal.take_profit_1 === "number"
-    )
-    .sort(
-      (firstSignal, secondSignal) =>
-        Date.parse(secondSignal.timestamp) -
-        Date.parse(firstSignal.timestamp)
-    );
+          firstSignal,
+          secondSignal
+        ) =>
+          Date.parse(
+            secondSignal.timestamp
+          ) -
+          Date.parse(
+            firstSignal.timestamp
+          )
+      );
 
-  if (directionalSignals.length === 0) {
+  if (
+    directionalSignals.length ===
+    0
+  ) {
     return null;
   }
 
@@ -312,30 +411,38 @@ function getLatestDirectionalSignal(
 function convertChartTimeToNumber(
   time: Time
 ): number | null {
-  if (typeof time === "number") {
+  if (
+    typeof time === "number"
+  ) {
     return time;
   }
 
-  if (typeof time === "string") {
+  if (
+    typeof time === "string"
+  ) {
     const parsedMilliseconds =
       Date.parse(time);
 
     if (
-      Number.isNaN(parsedMilliseconds)
+      Number.isNaN(
+        parsedMilliseconds
+      )
     ) {
       return null;
     }
 
     return Math.floor(
-      parsedMilliseconds / 1000
+      parsedMilliseconds /
+        1000
     );
   }
 
-  const milliseconds = Date.UTC(
-    time.year,
-    time.month - 1,
-    time.day
-  );
+  const milliseconds =
+    Date.UTC(
+      time.year,
+      time.month - 1,
+      time.day
+    );
 
   return Math.floor(
     milliseconds / 1000
@@ -343,7 +450,7 @@ function convertChartTimeToNumber(
 }
 
 /**
- * Formatta un prezzo EURUSD.
+ * Formatta un prezzo con cinque decimali.
  */
 function formatPrice(
   value: number
@@ -366,6 +473,22 @@ function formatVolume(
 }
 
 /**
+ * Converte una candela nei dati del pannello OHLCV.
+ */
+function candleToHoveredData(
+  candle: Candle
+): HoveredMarketData {
+  return {
+    timestamp: candle.timestamp,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+    volume: candle.volume,
+  };
+}
+
+/**
  * Mostra candlestick e volumi in pannelli sincronizzati.
  */
 export default function UnifiedMarketChart({
@@ -373,66 +496,77 @@ export default function UnifiedMarketChart({
   signals,
   timeframe,
 }: UnifiedMarketChartProps) {
+  // Contenitore HTML del grafico.
   const containerRef =
-    useRef<HTMLDivElement | null>(null);
-
-  const chartRef =
-    useRef<IChartApi | null>(null);
-
-  const [showEma, setShowEma] =
-    useState(true);
-
-  const [showLevels, setShowLevels] =
-    useState(true);
-
-  const [showVolume, setShowVolume] =
-    useState(true);
-
-  // Inizializza il pannello OHLCV con l'ultima candela disponibile.
-  const [hoveredData, setHoveredData] =
-    useState<HoveredMarketData | null>(
-      () => {
-        // Senza candele non esistono dati da mostrare.
-        if (candles.length === 0) {
-          return null;
-        }
-
-        // Recupera l'ultima candela ricevuta.
-        const latestCandle =
-          candles[candles.length - 1];
-
-        // Restituisce i dati iniziali del pannello OHLCV.
-        return {
-          timestamp: latestCandle.timestamp,
-          open: latestCandle.open,
-          high: latestCandle.high,
-          low: latestCandle.low,
-          close: latestCandle.close,
-          volume: latestCandle.volume,
-        };
-      }
+    useRef<HTMLDivElement | null>(
+      null
     );
 
-  useEffect(() => {
-    if (!containerRef.current) {
-      return;
-    }
+  // Istanza correntemente attiva del grafico.
+  const chartRef =
+    useRef<IChartApi | null>(
+      null
+    );
 
-    if (candles.length === 0) {
-      return;
-    }
+  // Controlla la visualizzazione delle EMA.
+  const [
+    showEma,
+    setShowEma,
+  ] = useState(true);
 
-    const orderedCandles = [...candles]
-      .sort(
-        (firstCandle, secondCandle) =>
-          Date.parse(
-            firstCandle.timestamp
-          ) -
-          Date.parse(
-            secondCandle.timestamp
-          )
+  // Controlla Entry, SL e TP.
+  const [
+    showLevels,
+    setShowLevels,
+  ] = useState(true);
+
+  // Controlla il pannello volume.
+  const [
+    showVolume,
+    setShowVolume,
+  ] = useState(true);
+
+  // Inizializza il pannello OHLCV.
+  const [
+    hoveredData,
+    setHoveredData,
+  ] = useState<HoveredMarketData | null>(
+    () => {
+      if (
+        candles.length === 0
+      ) {
+        return null;
+      }
+
+      return candleToHoveredData(
+        candles[
+          candles.length - 1
+        ]
       );
+    }
+  );
 
+  useEffect(() => {
+    // Il contenitore deve essere disponibile.
+    if (
+      containerRef.current ===
+      null
+    ) {
+      return;
+    }
+
+    // Non crea un grafico senza candele.
+    if (
+      candles.length === 0
+    ) {
+      return;
+    }
+
+    // Ordina le candele ricevute.
+    const orderedCandles =
+      orderCandles(candles);
+
+    // Prepara candlestick e volumi.
     const candleData =
       prepareCandlestickData(
         orderedCandles
@@ -443,16 +577,22 @@ export default function UnifiedMarketChart({
         orderedCandles
       );
 
-    if (candleData.length === 0) {
+    if (
+      candleData.length === 0
+    ) {
       return;
     }
 
+    // Indicizza le candele tramite timestamp.
     const candleLookup = new Map<
       number,
       Candle
     >();
 
-    for (const candle of orderedCandles) {
+    for (
+      const candle of
+      orderedCandles
+    ) {
       candleLookup.set(
         Number(
           convertToUtcTimestamp(
@@ -463,6 +603,7 @@ export default function UnifiedMarketChart({
       );
     }
 
+    // Crea il grafico.
     const chart = createChart(
       containerRef.current,
       {
@@ -470,15 +611,18 @@ export default function UnifiedMarketChart({
 
         layout: {
           background: {
-            type: ColorType.Solid,
+            type:
+              ColorType.Solid,
             color: "#0b1220",
           },
           textColor: "#94a3b8",
           fontFamily:
             "Inter, ui-sans-serif, system-ui, sans-serif",
           panes: {
-            separatorColor: "#263449",
-            separatorHoverColor: "#3b82f6",
+            separatorColor:
+              "#263449",
+            separatorHoverColor:
+              "#3b82f6",
             enableResize: true,
           },
         },
@@ -493,7 +637,8 @@ export default function UnifiedMarketChart({
         },
 
         rightPriceScale: {
-          borderColor: "#263449",
+          borderColor:
+            "#263449",
           scaleMargins: {
             top: 0.08,
             bottom: 0.08,
@@ -501,46 +646,56 @@ export default function UnifiedMarketChart({
         },
 
         timeScale: {
-          borderColor: "#263449",
+          borderColor:
+            "#263449",
           timeVisible: true,
           secondsVisible: false,
           rightOffset: 3,
           barSpacing: 9,
           minBarSpacing: 2,
-          lockVisibleTimeRangeOnResize: true,
-          rightBarStaysOnScroll: true,
+          lockVisibleTimeRangeOnResize:
+            true,
+          rightBarStaysOnScroll:
+            true,
         },
 
         crosshair: {
           vertLine: {
             color: "#64748b",
             width: 1,
-            style: LineStyle.Dashed,
-            labelBackgroundColor: "#334155",
+            style:
+              LineStyle.Dashed,
+            labelBackgroundColor:
+              "#334155",
           },
           horzLine: {
             color: "#64748b",
             width: 1,
-            style: LineStyle.Dashed,
-            labelBackgroundColor: "#334155",
+            style:
+              LineStyle.Dashed,
+            labelBackgroundColor:
+              "#334155",
           },
         },
 
         handleScroll: {
           mouseWheel: true,
-          pressedMouseMove: true,
+          pressedMouseMove:
+            true,
           horzTouchDrag: true,
           vertTouchDrag: false,
         },
 
         handleScale: {
-          axisPressedMouseMove: true,
+          axisPressedMouseMove:
+            true,
           mouseWheel: true,
           pinch: true,
         },
       }
     );
 
+    // Memorizza l'istanza.
     chartRef.current = chart;
 
     // Il pane 0 contiene prezzi ed EMA.
@@ -549,15 +704,21 @@ export default function UnifiedMarketChart({
         CandlestickSeries,
         {
           upColor: "#089981",
-          wickUpColor: "#089981",
-          borderUpColor: "#089981",
+          wickUpColor:
+            "#089981",
+          borderUpColor:
+            "#089981",
 
           downColor: "#f23645",
-          wickDownColor: "#f23645",
-          borderDownColor: "#f23645",
+          wickDownColor:
+            "#f23645",
+          borderDownColor:
+            "#f23645",
 
-          priceLineVisible: true,
-          lastValueVisible: true,
+          priceLineVisible:
+            true,
+          lastValueVisible:
+            true,
 
           priceFormat: {
             type: "price",
@@ -568,17 +729,24 @@ export default function UnifiedMarketChart({
         0
       );
 
+    // Carica le candele.
     candlestickSeries.setData(
       candleData
     );
 
-    if (signals.length > 0) {
+    // Aggiunge i marker dei segnali.
+    if (
+      signals.length > 0
+    ) {
       createSeriesMarkers(
         candlestickSeries,
-        prepareSignalMarkers(signals)
+        prepareSignalMarkers(
+          signals
+        )
       );
     }
 
+    // Aggiunge EMA 10 ed EMA 30.
     if (showEma) {
       const emaFastSeries =
         chart.addSeries(
@@ -587,8 +755,10 @@ export default function UnifiedMarketChart({
             color: "#2962ff",
             lineWidth: 2,
             title: "EMA 10",
-            priceLineVisible: false,
-            lastValueVisible: false,
+            priceLineVisible:
+              false,
+            lastValueVisible:
+              false,
           },
           0
         );
@@ -607,8 +777,10 @@ export default function UnifiedMarketChart({
             color: "#ff9800",
             lineWidth: 2,
             title: "EMA 30",
-            priceLineVisible: false,
-            lastValueVisible: false,
+            priceLineVisible:
+              false,
+            lastValueVisible:
+              false,
           },
           0
         );
@@ -621,89 +793,114 @@ export default function UnifiedMarketChart({
       );
     }
 
+    // Aggiunge Entry, Stop Loss e Take Profit.
     if (showLevels) {
       const latestSignal =
         getLatestDirectionalSignal(
           signals
         );
 
-      if (latestSignal !== null) {
+      if (
+        latestSignal !== null
+      ) {
         if (
           typeof latestSignal.entry_price ===
           "number"
         ) {
-          candlestickSeries.createPriceLine({
-            price: latestSignal.entry_price,
-            color: "#e2e8f0",
-            lineWidth: 1,
-            lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: "ENTRY",
-          });
+          candlestickSeries.createPriceLine(
+            {
+              price:
+                latestSignal.entry_price,
+              color: "#e2e8f0",
+              lineWidth: 1,
+              lineStyle:
+                LineStyle.Dashed,
+              axisLabelVisible:
+                true,
+              title: "ENTRY",
+            }
+          );
         }
 
         if (
           typeof latestSignal.stop_loss ===
           "number"
         ) {
-          candlestickSeries.createPriceLine({
-            price: latestSignal.stop_loss,
-            color: "#f23645",
-            lineWidth: 2,
-            lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: "SL",
-          });
+          candlestickSeries.createPriceLine(
+            {
+              price:
+                latestSignal.stop_loss,
+              color: "#f23645",
+              lineWidth: 2,
+              lineStyle:
+                LineStyle.Dashed,
+              axisLabelVisible:
+                true,
+              title: "SL",
+            }
+          );
         }
 
         if (
           typeof latestSignal.take_profit_1 ===
           "number"
         ) {
-          candlestickSeries.createPriceLine({
-            price:
-              latestSignal.take_profit_1,
-            color: "#089981",
-            lineWidth: 2,
-            lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: "TP1",
-          });
+          candlestickSeries.createPriceLine(
+            {
+              price:
+                latestSignal.take_profit_1,
+              color: "#089981",
+              lineWidth: 2,
+              lineStyle:
+                LineStyle.Dashed,
+              axisLabelVisible:
+                true,
+              title: "TP1",
+            }
+          );
         }
 
         if (
           typeof latestSignal.take_profit_2 ===
           "number"
         ) {
-          candlestickSeries.createPriceLine({
-            price:
-              latestSignal.take_profit_2,
-            color: "#14b8a6",
-            lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
-            axisLabelVisible: true,
-            title: "TP2",
-          });
+          candlestickSeries.createPriceLine(
+            {
+              price:
+                latestSignal.take_profit_2,
+              color: "#14b8a6",
+              lineWidth: 1,
+              lineStyle:
+                LineStyle.Dotted,
+              axisLabelVisible:
+                true,
+              title: "TP2",
+            }
+          );
         }
 
         if (
           typeof latestSignal.take_profit_3 ===
           "number"
         ) {
-          candlestickSeries.createPriceLine({
-            price:
-              latestSignal.take_profit_3,
-            color: "#06b6d4",
-            lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
-            axisLabelVisible: true,
-            title: "TP3",
-          });
+          candlestickSeries.createPriceLine(
+            {
+              price:
+                latestSignal.take_profit_3,
+              color: "#06b6d4",
+              lineWidth: 1,
+              lineStyle:
+                LineStyle.Dotted,
+              axisLabelVisible:
+                true,
+              title: "TP3",
+            }
+          );
         }
       }
     }
 
-    // Il pane 1 contiene i volumi.
+    // Il pane 1 contiene il volume.
     if (showVolume) {
       const volumeSeries =
         chart.addSeries(
@@ -714,45 +911,55 @@ export default function UnifiedMarketChart({
             priceFormat: {
               type: "volume",
             },
-            priceLineVisible: false,
-            lastValueVisible: true,
+            priceLineVisible:
+              false,
+            lastValueVisible:
+              true,
           },
           1
         );
 
-      volumeSeries.setData(volumeData);
+      volumeSeries.setData(
+        volumeData
+      );
 
-      // Imposta un'altezza iniziale per il pannello volume.
-      window.requestAnimationFrame(() => {
-        const panes = chart.panes();
+      // Imposta un'altezza iniziale stabile.
+      window.requestAnimationFrame(
+        () => {
+          const panes =
+            chart.panes();
 
-        if (panes.length > 1) {
-          panes[1].setHeight(160);
+          if (
+            panes.length > 1
+          ) {
+            panes[1].setHeight(
+              160
+            );
+          }
         }
-      });
+      );
     }
 
     /**
-     * Aggiorna il pannello OHLCV quando il crosshair si sposta.
+     * Aggiorna il pannello OHLCV
+     * quando il crosshair si sposta.
      */
     const handleCrosshairMove = (
-      parameter: MouseEventParams<Time>
+      parameter:
+        MouseEventParams<Time>
     ): void => {
-      if (parameter.time === undefined) {
-        const latestCandle =
-          orderedCandles[
-            orderedCandles.length - 1
-          ];
-
-        setHoveredData({
-          timestamp:
-            latestCandle.timestamp,
-          open: latestCandle.open,
-          high: latestCandle.high,
-          low: latestCandle.low,
-          close: latestCandle.close,
-          volume: latestCandle.volume,
-        });
+      if (
+        parameter.time ===
+        undefined
+      ) {
+        setHoveredData(
+          candleToHoveredData(
+            orderedCandles[
+              orderedCandles.length -
+                1
+            ]
+          )
+        );
 
         return;
       }
@@ -762,50 +969,140 @@ export default function UnifiedMarketChart({
           parameter.time
         );
 
-      if (timestamp === null) {
+      if (
+        timestamp === null
+      ) {
         return;
       }
 
       const selectedCandle =
-        candleLookup.get(timestamp);
+        candleLookup.get(
+          timestamp
+        );
 
-      if (selectedCandle === undefined) {
+      if (
+        selectedCandle ===
+        undefined
+      ) {
         return;
       }
 
-      setHoveredData({
-        timestamp:
-          selectedCandle.timestamp,
-        open: selectedCandle.open,
-        high: selectedCandle.high,
-        low: selectedCandle.low,
-        close: selectedCandle.close,
-        volume: selectedCandle.volume,
-      });
+      setHoveredData(
+        candleToHoveredData(
+          selectedCandle
+        )
+      );
     };
 
+    // Registra il crosshair.
     chart.subscribeCrosshairMove(
       handleCrosshairMove
     );
 
+    /**
+     * Memorizza automaticamente
+     * zoom e posizione temporale.
+     */
+    const handleVisibleRangeChange = (
+      logicalRange:
+        | SavedLogicalRange
+        | null
+    ): void => {
+      if (
+        logicalRange === null
+      ) {
+        return;
+      }
 
-    const requestedBars =
-      INITIAL_VISIBLE_BARS[timeframe];
+      VISIBLE_RANGE_BY_TIMEFRAME.set(
+        timeframe,
+        {
+          from:
+            logicalRange.from,
+          to: logicalRange.to,
+        }
+      );
+    };
 
-    const visibleBars = Math.min(
-      requestedBars,
-      candleData.length
-    );
+    // Recupera l'eventuale vista precedente.
+    const savedVisibleRange =
+      VISIBLE_RANGE_BY_TIMEFRAME.get(
+        timeframe
+      );
 
-    chart.timeScale().setVisibleLogicalRange({
-      from: Math.max(
-        0,
-        candleData.length - visibleBars
-      ),
-      to: candleData.length + 3,
-    });
+    if (
+      savedVisibleRange !==
+      undefined
+    ) {
+      // Ripristina zoom e posizione.
+      chart
+        .timeScale()
+        .setVisibleLogicalRange(
+          savedVisibleRange
+        );
+    } else {
+      // Imposta la vista iniziale solo al primo caricamento.
+      const requestedBars =
+        INITIAL_VISIBLE_BARS[
+          timeframe
+        ];
 
+      const visibleBars =
+        Math.min(
+          requestedBars,
+          candleData.length
+        );
+
+      chart
+        .timeScale()
+        .setVisibleLogicalRange({
+          from: Math.max(
+            0,
+            candleData.length -
+              visibleBars
+          ),
+          to:
+            candleData.length +
+            3,
+        });
+    }
+
+    // Registra le variazioni manuali della vista.
+    chart
+      .timeScale()
+      .subscribeVisibleLogicalRangeChange(
+        handleVisibleRangeChange
+      );
+
+    // Cleanup prima della ricreazione del grafico.
     return () => {
+      // Salva la vista immediatamente prima della rimozione.
+      const currentVisibleRange =
+        chart
+          .timeScale()
+          .getVisibleLogicalRange();
+
+      if (
+        currentVisibleRange !==
+        null
+      ) {
+        VISIBLE_RANGE_BY_TIMEFRAME.set(
+          timeframe,
+          {
+            from:
+              currentVisibleRange.from,
+            to:
+              currentVisibleRange.to,
+          }
+        );
+      }
+
+      chart
+        .timeScale()
+        .unsubscribeVisibleLogicalRangeChange(
+          handleVisibleRangeChange
+        );
+
       chart.unsubscribeCrosshairMove(
         handleCrosshairMove
       );
@@ -827,36 +1124,85 @@ export default function UnifiedMarketChart({
    * Mostra tutte le candele disponibili.
    */
   function fitChart(): void {
-    chartRef.current
-      ?.timeScale()
+    const chart =
+      chartRef.current;
+
+    if (
+      chart === null
+    ) {
+      return;
+    }
+
+    chart
+      .timeScale()
       .fitContent();
+
+    // Salva la nuova vista generata da fitContent.
+    const visibleRange =
+      chart
+        .timeScale()
+        .getVisibleLogicalRange();
+
+    if (
+      visibleRange !== null
+    ) {
+      VISIBLE_RANGE_BY_TIMEFRAME.set(
+        timeframe,
+        {
+          from:
+            visibleRange.from,
+          to: visibleRange.to,
+        }
+      );
+    }
   }
 
   /**
    * Torna alle ultime candele.
    */
   function goToLatestCandles(): void {
-    if (chartRef.current === null) {
+    const chart =
+      chartRef.current;
+
+    if (
+      chart === null
+    ) {
       return;
     }
 
     const requestedBars =
-      INITIAL_VISIBLE_BARS[timeframe];
+      INITIAL_VISIBLE_BARS[
+        timeframe
+      ];
 
-    const visibleBars = Math.min(
-      requestedBars,
-      candles.length
-    );
+    const visibleBars =
+      Math.min(
+        requestedBars,
+        candles.length
+      );
 
-    chartRef.current
-      .timeScale()
-      .setVisibleLogicalRange({
+    const latestRange: SavedLogicalRange =
+      {
         from: Math.max(
           0,
-          candles.length - visibleBars
+          candles.length -
+            visibleBars
         ),
-        to: candles.length + 3,
-      });
+        to:
+          candles.length + 3,
+      };
+
+    // Memorizza esplicitamente la vista.
+    VISIBLE_RANGE_BY_TIMEFRAME.set(
+      timeframe,
+      latestRange
+    );
+
+    chart
+      .timeScale()
+      .setVisibleLogicalRange(
+        latestRange
+      );
   }
 
   return (
@@ -866,7 +1212,9 @@ export default function UnifiedMarketChart({
           type="button"
           onClick={() => {
             setShowEma(
-              (currentValue) =>
+              (
+                currentValue
+              ) =>
                 !currentValue
             );
           }}
@@ -883,7 +1231,9 @@ export default function UnifiedMarketChart({
           type="button"
           onClick={() => {
             setShowLevels(
-              (currentValue) =>
+              (
+                currentValue
+              ) =>
                 !currentValue
             );
           }}
@@ -900,7 +1250,9 @@ export default function UnifiedMarketChart({
           type="button"
           onClick={() => {
             setShowVolume(
-              (currentValue) =>
+              (
+                currentValue
+              ) =>
                 !currentValue
             );
           }}
@@ -915,7 +1267,9 @@ export default function UnifiedMarketChart({
 
         <button
           type="button"
-          onClick={goToLatestCandles}
+          onClick={
+            goToLatestCandles
+          }
           className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:border-blue-500 hover:text-blue-300"
         >
           Ultime candele
@@ -949,6 +1303,7 @@ export default function UnifiedMarketChart({
             <span className="text-slate-500">
               O
             </span>
+
             <span className="ml-1 text-slate-300">
               {formatPrice(
                 hoveredData.open
@@ -960,6 +1315,7 @@ export default function UnifiedMarketChart({
             <span className="text-slate-500">
               H
             </span>
+
             <span className="ml-1 text-[#089981]">
               {formatPrice(
                 hoveredData.high
@@ -971,6 +1327,7 @@ export default function UnifiedMarketChart({
             <span className="text-slate-500">
               L
             </span>
+
             <span className="ml-1 text-[#f23645]">
               {formatPrice(
                 hoveredData.low
@@ -982,6 +1339,7 @@ export default function UnifiedMarketChart({
             <span className="text-slate-500">
               C
             </span>
+
             <span className="ml-1 text-slate-300">
               {formatPrice(
                 hoveredData.close
@@ -993,6 +1351,7 @@ export default function UnifiedMarketChart({
             <span className="text-slate-500">
               Vol
             </span>
+
             <span className="ml-1 text-purple-300">
               {formatVolume(
                 hoveredData.volume
