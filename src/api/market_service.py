@@ -1,15 +1,13 @@
-"""Servizio di lettura multi-timeframe per FastAPI."""
+"""Servizio di lettura multi-strumento e multi-timeframe per FastAPI."""
 
-# Importa dataclass per rappresentare la disponibilità.
+# Importa dataclass per rappresentare le disponibilità.
 from dataclasses import dataclass
 
 # Importa pandas per elaborare i dataset OHLCV.
 import pandas as pd
 
 # Importa lo storage persistente delle candele.
-from src.data.market_data_store import (
-    SQLiteMarketDataStore,
-)
+from src.data.market_data_store import SQLiteMarketDataStore
 
 # Importa il catalogo centralizzato dei timeframe.
 from src.data.market_timeframes import (
@@ -31,10 +29,39 @@ class MarketDataServiceError(ValueError):
 
 
 @dataclass(frozen=True)
+class MarketSymbolAvailability:
+    """Descrive uno strumento presente nell'archivio."""
+
+    # Codice del simbolo.
+    symbol: str
+
+    # Numero di timeframe nativi disponibili.
+    native_timeframe_count: int
+
+    # Numero complessivo di candele archiviate.
+    stored_candle_count: int
+
+    # Indica se esiste un modello ML validato.
+    model_enabled: bool
+
+    def to_dict(
+        self,
+    ) -> dict[str, object]:
+        """Converte il simbolo in un record JSON."""
+
+        return {
+            "symbol": self.symbol,
+            "native_timeframe_count": (self.native_timeframe_count),
+            "stored_candle_count": (self.stored_candle_count),
+            "model_enabled": (self.model_enabled),
+        }
+
+
+@dataclass(frozen=True)
 class TimeframeAvailability:
     """Descrive la disponibilità di una risoluzione."""
 
-    # Codice interno del timeframe.
+    # Codice del timeframe.
     code: str
 
     # Etichetta compatta del frontend.
@@ -49,22 +76,22 @@ class TimeframeAvailability:
     # Indica se le candele sono native.
     native: bool
 
-    # Indica se il modello opera sul timeframe.
+    # Indica se esiste un modello validato.
     model_enabled: bool
 
-    # Timeframe sorgente usato per l'aggregazione.
+    # Timeframe usato come sorgente.
     source_timeframe: str | None
 
     # Numero di candele native archiviate.
     stored_candle_count: int
 
-    # Motivo dell'eventuale indisponibilità.
+    # Motivo dell'indisponibilità.
     reason: str | None
 
     def to_dict(
         self,
     ) -> dict[str, object]:
-        """Converte la disponibilità in un dizionario JSON."""
+        """Converte la disponibilità in un record JSON."""
 
         return {
             "code": self.code,
@@ -74,46 +101,129 @@ class TimeframeAvailability:
             "native": self.native,
             "model_enabled": self.model_enabled,
             "source_timeframe": self.source_timeframe,
-            "stored_candle_count": self.stored_candle_count,
+            "stored_candle_count": (self.stored_candle_count),
             "reason": self.reason,
         }
 
 
+def normalize_market_symbol(
+    symbol: str,
+) -> str:
+    """Normalizza e valida un simbolo."""
+
+    # Il simbolo deve essere una stringa.
+    if not isinstance(
+        symbol,
+        str,
+    ):
+        raise MarketDataServiceError("symbol deve essere una stringa.")
+
+    # Normalizza il codice.
+    selected_symbol = symbol.strip().upper()
+
+    # Rifiuta una stringa vuota.
+    if not selected_symbol:
+        raise MarketDataServiceError("symbol non può essere vuoto.")
+
+    return selected_symbol
+
+
+def list_available_symbols(
+    store: SQLiteMarketDataStore,
+    *,
+    model_symbols: tuple[str, ...] = (),
+):
+    """Elenca gli strumenti presenti nell'archivio."""
+
+    # Verifica lo storage.
+    if not isinstance(
+        store,
+        SQLiteMarketDataStore,
+    ):
+        raise TypeError("store deve essere un'istanza di SQLiteMarketDataStore.")
+
+    # Normalizza l'elenco dei simboli con modello.
+    normalized_model_symbols = {normalize_market_symbol(symbol) for symbol in model_symbols}
+
+    # Recupera tutti i dataset disponibili.
+    availability = store.list_availability()
+
+    # Aggrega i dati per simbolo.
+    grouped_timeframes: dict[
+        str,
+        set[str],
+    ] = {}
+
+    grouped_candle_counts: dict[
+        str,
+        int,
+    ] = {}
+
+    for item in availability:
+        # Crea il set dei timeframe del simbolo.
+        if item.symbol not in grouped_timeframes:
+            grouped_timeframes[item.symbol] = set()
+
+        # Registra il timeframe nativo.
+        grouped_timeframes[item.symbol].add(item.timeframe)
+
+        # Aggiorna il conteggio complessivo.
+        grouped_candle_counts[item.symbol] = (
+            grouped_candle_counts.get(
+                item.symbol,
+                0,
+            )
+            + item.candle_count
+        )
+
+    # Converte i dati aggregati.
+    results = []
+
+    for symbol in sorted(grouped_timeframes):
+        results.append(
+            MarketSymbolAvailability(
+                symbol=symbol,
+                native_timeframe_count=len(grouped_timeframes[symbol]),
+                stored_candle_count=(
+                    grouped_candle_counts.get(
+                        symbol,
+                        0,
+                    )
+                ),
+                model_enabled=(symbol in normalized_model_symbols),
+            )
+        )
+
+    return results
+
+
 class MarketDataQueryService:
-    """Legge candele native e genera aggregazioni superiori."""
+    """Legge candele native o aggregate per un simbolo."""
 
     def __init__(
         self,
         store: SQLiteMarketDataStore,
         *,
         symbol: str,
+        model_enabled: bool = True,
     ) -> None:
         """Inizializza il servizio di interrogazione."""
 
-        # Verifica il tipo dello storage.
+        # Verifica lo storage.
         if not isinstance(
             store,
             SQLiteMarketDataStore,
         ):
             raise TypeError("store deve essere un'istanza di SQLiteMarketDataStore.")
 
-        # Il simbolo deve essere una stringa.
-        if not isinstance(
-            symbol,
-            str,
-        ):
-            raise MarketDataServiceError("symbol deve essere una stringa.")
-
-        # Normalizza il simbolo.
-        selected_symbol = symbol.strip().upper()
-
-        # Il simbolo non può essere vuoto.
-        if not selected_symbol:
-            raise MarketDataServiceError("symbol non può essere vuoto.")
-
-        # Salva i componenti validati.
+        # Salva lo storage.
         self._store = store
-        self._symbol = selected_symbol
+
+        # Normalizza e salva il simbolo.
+        self._symbol = normalize_market_symbol(symbol)
+
+        # Salva la disponibilità del modello.
+        self._model_enabled = bool(model_enabled)
 
     @property
     def store(
@@ -124,31 +234,40 @@ class MarketDataQueryService:
         return self._store
 
     @property
-    def symbol(self) -> str:
+    def symbol(
+        self,
+    ) -> str:
         """Restituisce il simbolo selezionato."""
 
         return self._symbol
 
+    @property
+    def model_enabled(
+        self,
+    ) -> bool:
+        """Indica se il simbolo possiede un modello validato."""
+
+        return self._model_enabled
+
     def _native_counts(
         self,
     ) -> dict[str, int]:
-        """Restituisce il numero di candele native per timeframe."""
+        """Restituisce le candele native per timeframe."""
 
         # Recupera la disponibilità del simbolo.
         availability = self._store.list_availability(symbol=self._symbol)
 
-        # Indicizza i conteggi per codice.
-        return {item.timeframe: item.candle_count for item in availability}
+        # Indicizza il conteggio per timeframe.
+        return {item.timeframe: (item.candle_count) for item in availability}
 
     @staticmethod
     def _find_aggregation_source(
         target: MarketTimeframe,
         native_counts: dict[str, int],
     ) -> MarketTimeframe | None:
-        """Trova il miglior timeframe sorgente per l'aggregazione."""
+        """Trova la migliore sorgente aggregabile."""
 
-        # Recupera i timeframe nativi più piccoli del target
-        # e divisori esatti della durata richiesta.
+        # Cerca timeframe nativi inferiori e divisori esatti.
         candidates = [
             timeframe
             for timeframe in MARKET_TIMEFRAMES
@@ -163,12 +282,11 @@ class MarketDataQueryService:
             )
         ]
 
-        # Nessuna sorgente è disponibile.
+        # Nessuna sorgente disponibile.
         if not candidates:
             return None
 
-        # Usa il timeframe nativo con durata maggiore.
-        # Questo riduce il numero di barre da aggregare.
+        # Usa il timeframe nativo più vicino al target.
         return max(
             candidates,
             key=lambda item: item.minutes,
@@ -177,13 +295,13 @@ class MarketDataQueryService:
     def list_timeframes(
         self,
     ):
-        """Elenca tutti i timeframe e la relativa disponibilità."""
+        """Elenca i timeframe del simbolo."""
 
         # Recupera i conteggi nativi.
         native_counts = self._native_counts()
 
-        # Prepara il risultato ordinato.
-        result: list[TimeframeAvailability] = []
+        # Prepara il risultato.
+        result = []
 
         # Valuta ogni timeframe del catalogo.
         for timeframe in MARKET_TIMEFRAMES:
@@ -193,16 +311,19 @@ class MarketDataQueryService:
                 0,
             )
 
-            # Un dataset nativo è immediatamente disponibile.
+            # Il modello è inizialmente disponibile solo su M15.
+            timeframe_model_enabled = self._model_enabled and timeframe.code == "M15"
+
+            # Un timeframe nativo è subito disponibile.
             if native_count > 0:
                 result.append(
                     TimeframeAvailability(
                         code=timeframe.code,
                         label=(timeframe.display_label),
-                        minutes=timeframe.minutes,
+                        minutes=(timeframe.minutes),
                         available=True,
                         native=True,
-                        model_enabled=(timeframe.model_enabled),
+                        model_enabled=(timeframe_model_enabled),
                         source_timeframe=(timeframe.code),
                         stored_candle_count=(native_count),
                         reason=None,
@@ -217,16 +338,16 @@ class MarketDataQueryService:
                 native_counts,
             )
 
-            # Se esiste una sorgente, il timeframe è derivabile.
+            # Il timeframe può essere derivato.
             if source is not None:
                 result.append(
                     TimeframeAvailability(
                         code=timeframe.code,
                         label=(timeframe.display_label),
-                        minutes=timeframe.minutes,
+                        minutes=(timeframe.minutes),
                         available=True,
                         native=False,
-                        model_enabled=(timeframe.model_enabled),
+                        model_enabled=(timeframe_model_enabled),
                         source_timeframe=(source.code),
                         stored_candle_count=0,
                         reason=None,
@@ -235,15 +356,15 @@ class MarketDataQueryService:
 
                 continue
 
-            # Nessuna sorgente è disponibile.
+            # Nessuna sorgente disponibile.
             result.append(
                 TimeframeAvailability(
                     code=timeframe.code,
                     label=(timeframe.display_label),
-                    minutes=timeframe.minutes,
+                    minutes=(timeframe.minutes),
                     available=False,
                     native=False,
-                    model_enabled=(timeframe.model_enabled),
+                    model_enabled=(timeframe_model_enabled),
                     source_timeframe=None,
                     stored_candle_count=0,
                     reason=("Nessuna candela nativa o sorgente aggregabile disponibile."),
@@ -256,16 +377,16 @@ class MarketDataQueryService:
         self,
         timeframe_code: str,
     ) -> TimeframeAvailability:
-        """Recupera la disponibilità di un singolo timeframe."""
+        """Recupera un singolo timeframe."""
 
         try:
-            # Normalizza e valida il codice.
+            # Normalizza e valida il timeframe.
             timeframe = get_timeframe_by_code(timeframe_code)
 
         except MarketTimeframeError as error:
             raise MarketDataServiceError(str(error)) from error
 
-        # Cerca il timeframe nel catalogo calcolato.
+        # Cerca il timeframe nel catalogo.
         for item in self.list_timeframes():
             if item.code == timeframe.code:
                 return item
@@ -286,20 +407,20 @@ class MarketDataQueryService:
             raise MarketDataServiceError("limit deve essere maggiore di zero.")
 
         try:
-            # Recupera il timeframe richiesto.
+            # Normalizza e valida il timeframe target.
             target = get_timeframe_by_code(timeframe_code)
 
         except MarketTimeframeError as error:
             raise MarketDataServiceError(str(error)) from error
 
-        # Recupera la disponibilità.
+        # Recupera la disponibilità del timeframe.
         availability = self.get_timeframe_availability(target.code)
 
-        # Rifiuta timeframe non disponibili.
+        # Rifiuta timeframe indisponibili.
         if not availability.available:
             raise MarketDataServiceError(f"Timeframe non disponibile: {target.code}.")
 
-        # Le candele native vengono lette direttamente.
+        # Legge direttamente un timeframe nativo.
         if availability.native:
             return self._store.load_candles(
                 symbol=self._symbol,
@@ -307,7 +428,7 @@ class MarketDataQueryService:
                 limit=limit,
             )
 
-        # Il timeframe aggregato deve avere una sorgente.
+        # Un timeframe aggregato deve avere una sorgente.
         if availability.source_timeframe is None:
             raise MarketDataServiceError(
                 f"Sorgente aggregazione non disponibile per {target.code}."
@@ -316,14 +437,13 @@ class MarketDataQueryService:
         # Recupera la definizione della sorgente.
         source = get_timeframe_by_code(availability.source_timeframe)
 
-        # Calcola quante candele sorgente possono servire.
+        # Calcola il rapporto tra target e sorgente.
         source_ratio = target.minutes // source.minutes
 
-        # Legge un margine aggiuntivo per scartare
-        # eventuali bucket incompleti iniziali e finali.
+        # Legge un margine per i bucket incompleti.
         source_limit = limit * source_ratio + source_ratio * 2
 
-        # Carica le candele native della sorgente.
+        # Carica le candele sorgente.
         source_dataframe = self._store.load_candles(
             symbol=self._symbol,
             timeframe=source.code,
@@ -335,9 +455,9 @@ class MarketDataQueryService:
             raise MarketDataServiceError(f"Nessuna candela sorgente disponibile per {target.code}.")
 
         try:
-            # Genera solamente bucket completi.
+            # Aggrega solamente bucket completi.
             aggregated = resample_ohlcv(
-                dataframe=source_dataframe,
+                dataframe=(source_dataframe),
                 source_minutes=(source.minutes),
                 target_minutes=(target.minutes),
             )
@@ -347,5 +467,5 @@ class MarketDataQueryService:
                 f"Impossibile generare il timeframe {target.code}: {error}"
             ) from error
 
-        # Mantiene solamente le ultime candele richieste.
+        # Mantiene le ultime candele richieste.
         return aggregated.tail(limit).reset_index(drop=True)
