@@ -21,19 +21,19 @@ from fastapi import FastAPI, HTTPException, Query
 # Importa CORS per consentire il collegamento da Next.js.
 from fastapi.middleware.cors import CORSMiddleware
 
-# Importa il servizio dati multi-timeframe.
+# Importa il servizio dati multi-strumento e multi-timeframe.
 from src.api.market_service import (
     MarketDataQueryService,
     MarketDataServiceError,
+    list_available_symbols,
+    normalize_market_symbol,
 )
 
 # Importa il provider CSV validato.
 from src.data.file_provider import FileDataProvider
 
 # Importa lo storage persistente delle candele.
-from src.data.market_data_store import (
-    SQLiteMarketDataStore,
-)
+from src.data.market_data_store import SQLiteMarketDataStore
 
 # Importa il catalogo professionale dei timeframe.
 from src.data.market_timeframes import (
@@ -62,20 +62,23 @@ class APIConfig:
     # Percorso del dataset CSV usato come fallback locale.
     market_data_path: str = "data/sample/EURUSD_M15_sample.csv"
 
-    # Percorso opzionale dell'archivio persistente delle candele.
+    # Percorso opzionale dell'archivio delle candele.
     market_data_database_path: str | None = None
 
     # Percorso del database segnali ed esiti.
     database_path: str = "data/live_paper/coordinated_live_paper.db"
 
-    # Simbolo gestito dall'API.
+    # Simbolo predefinito gestito dall'API.
     symbol: str = "EURUSD"
 
-    # Timeframe operativo del modello.
+    # Timeframe operativo predefinito del modello.
     timeframe: str = "M15"
 
-    # Durata del timeframe CSV sorgente.
+    # Durata del timeframe sorgente del CSV.
     source_timeframe_minutes: int = 15
+
+    # Simboli per i quali esiste un modello validato.
+    model_symbols: tuple[str, ...] = ("EURUSD",)
 
     # Modalità esclusivamente simulata.
     paper_trading_only: bool = True
@@ -87,7 +90,6 @@ def _table_exists(
 ) -> bool:
     """Verifica la presenza di una tabella SQLite."""
 
-    # Interroga il catalogo SQLite.
     cursor = connection.execute(
         """
         SELECT name
@@ -154,19 +156,15 @@ def _read_database(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Legge segnali ed esiti dal database SQLite."""
 
-    # Converte il percorso ricevuto.
     selected_path = Path(database_path)
 
-    # Senza database restituisce registri vuoti.
     if not selected_path.exists():
         return (
             _empty_signals_dataframe(),
             _empty_outcomes_dataframe(),
         )
 
-    # Apre il database.
     with sqlite3.connect(selected_path) as connection:
-        # Carica i segnali se la tabella esiste.
         if _table_exists(
             connection,
             "signals",
@@ -182,7 +180,6 @@ def _read_database(
         else:
             signals = _empty_signals_dataframe()
 
-        # Carica gli esiti se la tabella esiste.
         if _table_exists(
             connection,
             "signal_outcomes",
@@ -203,20 +200,17 @@ def _read_database(
 
 def _dataframe_to_records(
     dataframe: pd.DataFrame,
-) -> list[dict[str, Any]]:
+):
     """Converte un DataFrame in record JSON compatibili."""
 
-    # Crea una copia per non modificare l'originale.
     normalized = dataframe.copy(deep=True)
 
-    # Converte le colonne datetime in stringhe ISO.
     for column in normalized.columns:
         if pd.api.types.is_datetime64_any_dtype(normalized[column]):
             normalized[column] = normalized[column].map(
                 lambda value: value.isoformat() if pd.notna(value) else None
             )
 
-    # Converte Timestamp presenti in colonne object.
     for column in normalized.columns:
         normalized[column] = normalized[column].map(
             lambda value: (
@@ -229,13 +223,14 @@ def _dataframe_to_records(
             )
         )
 
-    # Sostituisce NaN e NaT con None.
     normalized = normalized.astype(object).where(
         pd.notna(normalized),
         None,
     )
 
-    return normalized.to_dict(orient="records")
+    records: list[dict[str, Any]] = normalized.to_dict(orient="records")
+
+    return records
 
 
 def _load_csv_market_dataframe(
@@ -243,7 +238,6 @@ def _load_csv_market_dataframe(
 ) -> pd.DataFrame:
     """Carica e valida il dataset CSV di fallback."""
 
-    # Verifica che il dataset esista.
     if not market_data_path.exists():
         raise HTTPException(
             status_code=404,
@@ -251,7 +245,6 @@ def _load_csv_market_dataframe(
         )
 
     try:
-        # Usa il provider CSV già validato.
         provider = FileDataProvider()
 
         return provider.load_csv(market_data_path)
@@ -269,7 +262,6 @@ def _validate_requested_timeframe(
     """Normalizza e valida un timeframe richiesto."""
 
     try:
-        # Recupera la definizione centralizzata.
         timeframe = get_timeframe_by_code(timeframe_code)
 
     except MarketTimeframeError as error:
@@ -281,39 +273,49 @@ def _validate_requested_timeframe(
     return timeframe.code
 
 
-def _create_market_service(
-    config: APIConfig,
-) -> MarketDataQueryService | None:
-    """Crea il servizio SQLite se contiene dati del simbolo."""
+def _validate_requested_symbol(
+    symbol: str,
+) -> str:
+    """Normalizza e valida un simbolo richiesto."""
 
-    # Senza percorso configurato usa il CSV.
+    try:
+        return normalize_market_symbol(symbol)
+
+    except MarketDataServiceError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        ) from error
+
+
+def _is_model_enabled(
+    config: APIConfig,
+    symbol: str,
+) -> bool:
+    """Verifica se il simbolo ha un modello registrato."""
+
+    normalized_model_symbols = {
+        normalize_market_symbol(model_symbol) for model_symbol in config.model_symbols
+    }
+
+    return symbol in normalized_model_symbols
+
+
+def _open_market_store(
+    config: APIConfig,
+) -> SQLiteMarketDataStore | None:
+    """Apre lo storage delle candele quando disponibile."""
+
     if config.market_data_database_path is None:
         return None
 
-    # Converte il percorso.
     selected_path = Path(config.market_data_database_path)
 
-    # Senza file utilizza il CSV di fallback.
     if not selected_path.exists():
         return None
 
     try:
-        # Crea lo storage sul database esistente.
-        store = SQLiteMarketDataStore(selected_path)
-
-        # Crea il servizio di interrogazione.
-        service = MarketDataQueryService(
-            store,
-            symbol=config.symbol,
-        )
-
-        # Verifica che il simbolo abbia almeno un dataset.
-        availability = store.list_availability(symbol=config.symbol)
-
-        if not availability:
-            return None
-
-        return service
+        return SQLiteMarketDataStore(selected_path)
 
     except Exception as error:
         raise HTTPException(
@@ -322,17 +324,111 @@ def _create_market_service(
         ) from error
 
 
+def _create_market_service(
+    config: APIConfig,
+    *,
+    symbol: str,
+) -> MarketDataQueryService | None:
+    """Crea il servizio SQLite per il simbolo richiesto."""
+
+    store = _open_market_store(config)
+
+    if store is None:
+        return None
+
+    availability = store.list_availability(symbol=symbol)
+
+    if not availability:
+        return None
+
+    return MarketDataQueryService(
+        store,
+        symbol=symbol,
+        model_enabled=(
+            _is_model_enabled(
+                config,
+                symbol,
+            )
+        ),
+    )
+
+
+def _list_symbols(
+    config: APIConfig,
+):
+    """Restituisce gli strumenti disponibili."""
+
+    store = _open_market_store(config)
+
+    if store is not None:
+        symbols = list_available_symbols(
+            store,
+            model_symbols=(config.model_symbols),
+        )
+
+        if symbols:
+            return (
+                [item.to_dict() for item in symbols],
+                "SQLITE_MARKET_DATA",
+            )
+
+    # Il CSV di fallback contiene solo il simbolo predefinito.
+    fallback_symbol = normalize_market_symbol(config.symbol)
+
+    return (
+        [
+            {
+                "symbol": fallback_symbol,
+                "native_timeframe_count": 1,
+                "stored_candle_count": 0,
+                "model_enabled": (
+                    _is_model_enabled(
+                        config,
+                        fallback_symbol,
+                    )
+                ),
+            }
+        ],
+        "CSV_FALLBACK",
+    )
+
+
 def _build_csv_timeframe_catalog(
     config: APIConfig,
-) -> list:
+    *,
+    symbol: str,
+):
     """Costruisce il catalogo disponibile dal CSV M15."""
 
-    # Prepara il catalogo pubblico.
     result = []
 
-    # Valuta ogni timeframe professionale.
+    # Il CSV può essere utilizzato solo per il simbolo predefinito.
+    csv_symbol = normalize_market_symbol(config.symbol)
+
+    if symbol != csv_symbol:
+        return [
+            {
+                "code": timeframe.code,
+                "label": (timeframe.display_label),
+                "minutes": timeframe.minutes,
+                "available": False,
+                "native": False,
+                "model_enabled": False,
+                "source_timeframe": None,
+                "stored_candle_count": 0,
+                "reason": (f"Nessun dato disponibile per {symbol}."),
+            }
+            for timeframe in MARKET_TIMEFRAMES
+        ]
+
+    symbol_model_enabled = _is_model_enabled(
+        config,
+        symbol,
+    )
+
     for timeframe in MARKET_TIMEFRAMES:
-        # Il CSV M15 è nativo.
+        timeframe_model_enabled = symbol_model_enabled and timeframe.code == "M15"
+
         if timeframe.code == "M15":
             result.append(
                 {
@@ -341,7 +437,7 @@ def _build_csv_timeframe_catalog(
                     "minutes": timeframe.minutes,
                     "available": True,
                     "native": True,
-                    "model_enabled": (timeframe.model_enabled),
+                    "model_enabled": (timeframe_model_enabled),
                     "source_timeframe": "M15",
                     "stored_candle_count": 0,
                     "reason": None,
@@ -350,8 +446,6 @@ def _build_csv_timeframe_catalog(
 
             continue
 
-        # I timeframe superiori divisibili per M15
-        # possono essere aggregati.
         if (
             timeframe.minutes > config.source_timeframe_minutes
             and timeframe.minutes % config.source_timeframe_minutes == 0
@@ -363,7 +457,7 @@ def _build_csv_timeframe_catalog(
                     "minutes": timeframe.minutes,
                     "available": True,
                     "native": False,
-                    "model_enabled": (timeframe.model_enabled),
+                    "model_enabled": (timeframe_model_enabled),
                     "source_timeframe": "M15",
                     "stored_candle_count": 0,
                     "reason": None,
@@ -372,7 +466,6 @@ def _build_csv_timeframe_catalog(
 
             continue
 
-        # I timeframe inferiori richiedono dati nativi.
         result.append(
             {
                 "code": timeframe.code,
@@ -380,7 +473,7 @@ def _build_csv_timeframe_catalog(
                 "minutes": timeframe.minutes,
                 "available": False,
                 "native": False,
-                "model_enabled": (timeframe.model_enabled),
+                "model_enabled": (timeframe_model_enabled),
                 "source_timeframe": None,
                 "stored_candle_count": 0,
                 "reason": ("Richiede candele native dal provider reale."),
@@ -398,21 +491,17 @@ def _load_csv_timeframe(
 ) -> pd.DataFrame:
     """Restituisce il timeframe richiesto dal CSV M15."""
 
-    # Recupera la definizione del timeframe.
     target = get_timeframe_by_code(selected_timeframe)
 
-    # Il timeframe nativo viene restituito direttamente.
     if target.minutes == source_minutes:
         return dataframe.copy(deep=True)
 
-    # Non ricostruisce timeframe inferiori.
     if target.minutes < source_minutes:
         raise HTTPException(
             status_code=422,
             detail=(f"Timeframe non disponibile: {target.code}. Richiede candele native."),
         )
 
-    # La durata target deve essere divisibile per la sorgente.
     if target.minutes % source_minutes != 0:
         raise HTTPException(
             status_code=422,
@@ -420,10 +509,9 @@ def _load_csv_timeframe(
         )
 
     try:
-        # Aggrega solamente bucket completi.
         return resample_ohlcv(
             dataframe=dataframe,
-            source_minutes=source_minutes,
+            source_minutes=(source_minutes),
             target_minutes=(target.minutes),
         )
 
@@ -439,33 +527,29 @@ def create_app(
 ) -> FastAPI:
     """Crea e configura l'applicazione FastAPI."""
 
-    # Usa la configurazione predefinita se necessario.
     selected_config = config or APIConfig()
 
-    # La release deve restare PAPER_ONLY.
     if not selected_config.paper_trading_only:
         raise ValueError("Il backend API richiede paper_trading_only=true.")
 
-    # Il modello corrente opera su M15.
     if selected_config.timeframe != "M15":
         raise ValueError("Il modello corrente richiede un timeframe operativo M15.")
 
-    # Il CSV di fallback deve essere M15.
     if selected_config.source_timeframe_minutes != 15:
         raise ValueError("Il timeframe CSV sorgente deve essere pari a 15 minuti.")
 
-    # Crea l'applicazione.
     app = FastAPI(
-        title="AI Trading Indicator API",
+        title=("AI Trading Indicator API"),
         description=(
-            "API read-only per dati OHLCV multi-timeframe, segnali, esiti e statistiche Live Paper."
+            "API read-only per dati OHLCV "
+            "multi-strumento e multi-timeframe, "
+            "segnali, esiti e statistiche."
         ),
-        version="0.3.0",
+        version="0.4.0",
         docs_url="/docs",
         redoc_url="/redoc",
     )
 
-    # Abilita il frontend Next.js.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -487,9 +571,9 @@ def create_app(
 
         return {
             "application": ("AI Trading Indicator API"),
-            "version": "0.3.0",
+            "version": "0.4.0",
             "mode": "PAPER_ONLY",
-            "symbol": selected_config.symbol,
+            "symbol": (selected_config.symbol),
             "source_timeframe": (selected_config.timeframe),
             "documentation": "/docs",
         }
@@ -498,16 +582,13 @@ def create_app(
     def health() -> dict[str, object]:
         """Restituisce lo stato dei componenti locali."""
 
-        # Verifica il CSV di fallback.
         csv_available = Path(selected_config.market_data_path).exists()
 
-        # Verifica il database delle candele.
         market_database_available = False
 
         if selected_config.market_data_database_path is not None:
             market_database_available = Path(selected_config.market_data_database_path).exists()
 
-        # Verifica il database segnali.
         database_available = Path(selected_config.database_path).exists()
 
         return {
@@ -517,38 +598,74 @@ def create_app(
             "market_data_database_available": (market_database_available),
             "csv_fallback_available": (csv_available),
             "database_available": (database_available),
-            "symbol": selected_config.symbol,
-            "timeframe": selected_config.timeframe,
+            "symbol": (selected_config.symbol),
+            "timeframe": (selected_config.timeframe),
+        }
+
+    @app.get("/api/v1/market/symbols")
+    def get_symbols() -> dict[str, object]:
+        """Restituisce gli strumenti disponibili."""
+
+        symbols, source_type = _list_symbols(selected_config)
+
+        return {
+            "source_type": source_type,
+            "default_symbol": (normalize_market_symbol(selected_config.symbol)),
+            "count": len(symbols),
+            "symbols": symbols,
         }
 
     @app.get("/api/v1/market/timeframes")
-    def get_timeframes() -> dict[str, object]:
-        """Restituisce disponibilità e origine dei timeframe."""
+    def get_timeframes(
+        symbol: Annotated[
+            str,
+            Query(),
+        ] = "",
+    ) -> dict[str, object]:
+        """Restituisce i timeframe del simbolo richiesto."""
 
-        # Prova a utilizzare lo storage persistente.
-        service = _create_market_service(selected_config)
+        requested_symbol = symbol or selected_config.symbol
 
-        # Usa il database delle candele.
+        selected_symbol = _validate_requested_symbol(requested_symbol)
+
+        service = _create_market_service(
+            selected_config,
+            symbol=selected_symbol,
+        )
+
         if service is not None:
             items = [item.to_dict() for item in service.list_timeframes()]
 
             source_type = "SQLITE_MARKET_DATA"
 
-        # Usa il CSV M15 di fallback.
         else:
-            items = _build_csv_timeframe_catalog(selected_config)
+            items = _build_csv_timeframe_catalog(
+                selected_config,
+                symbol=selected_symbol,
+            )
 
             source_type = "CSV_FALLBACK"
 
         return {
+            "symbol": selected_symbol,
             "source_timeframe": (selected_config.timeframe),
             "source_type": source_type,
             "model_timeframe": "M15",
+            "model_enabled": (
+                _is_model_enabled(
+                    selected_config,
+                    selected_symbol,
+                )
+            ),
             "timeframes": items,
         }
 
     @app.get("/api/v1/market/candles")
     def get_candles(
+        symbol: Annotated[
+            str,
+            Query(),
+        ] = "",
         timeframe: Annotated[
             str,
             Query(),
@@ -561,15 +678,19 @@ def create_app(
     ) -> dict[str, object]:
         """Restituisce le candele richieste."""
 
-        # Normalizza e valida il timeframe.
+        requested_symbol = symbol or selected_config.symbol
+
+        selected_symbol = _validate_requested_symbol(requested_symbol)
+
         selected_timeframe = _validate_requested_timeframe(timeframe)
 
-        # Prova a usare lo storage persistente.
-        service = _create_market_service(selected_config)
+        service = _create_market_service(
+            selected_config,
+            symbol=selected_symbol,
+        )
 
         if service is not None:
             try:
-                # Carica dati nativi o aggregati.
                 selected_dataframe = service.load_candles(
                     timeframe_code=(selected_timeframe),
                     limit=limit,
@@ -586,35 +707,51 @@ def create_app(
             source_timeframe = availability.source_timeframe
 
             native = availability.native
+
+            model_enabled = availability.model_enabled
+
             source_type = "SQLITE_MARKET_DATA"
 
         else:
-            # Carica il CSV M15 di fallback.
+            csv_symbol = normalize_market_symbol(selected_config.symbol)
+
+            if selected_symbol != csv_symbol:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(f"Nessun dato disponibile per {selected_symbol}."),
+                )
+
             source_dataframe = _load_csv_market_dataframe(Path(selected_config.market_data_path))
 
-            # Genera il timeframe richiesto.
             selected_dataframe = _load_csv_timeframe(
                 source_dataframe,
                 selected_timeframe=(selected_timeframe),
                 source_minutes=(selected_config.source_timeframe_minutes),
             )
 
-            # Applica il limite.
             selected_dataframe = selected_dataframe.tail(limit).reset_index(drop=True)
 
             source_timeframe = "M15"
 
             native = selected_timeframe == "M15"
 
+            model_enabled = (
+                _is_model_enabled(
+                    selected_config,
+                    selected_symbol,
+                )
+                and selected_timeframe == "M15"
+            )
+
             source_type = "CSV_FALLBACK"
 
         return {
-            "symbol": selected_config.symbol,
-            "timeframe": selected_timeframe,
+            "symbol": selected_symbol,
+            "timeframe": (selected_timeframe),
             "source_timeframe": (source_timeframe),
             "source_type": source_type,
             "native": native,
-            "model_enabled": (selected_timeframe == "M15"),
+            "model_enabled": (model_enabled),
             "timezone": "UTC",
             "count": len(selected_dataframe),
             "candles": (_dataframe_to_records(selected_dataframe)),
@@ -666,7 +803,6 @@ def create_app(
 
         signals, outcomes = _read_database(selected_config.database_path)
 
-        # Nessun dato disponibile.
         if signals.empty:
             return {
                 "mode": "PAPER_ONLY",
@@ -675,7 +811,6 @@ def create_app(
             }
 
         try:
-            # Genera le statistiche.
             statistics = generate_live_paper_statistics(
                 signals=signals,
                 outcomes=outcomes,
@@ -697,17 +832,21 @@ def create_app(
     def get_system_status() -> dict[str, object]:
         """Restituisce lo stato sintetico del sistema."""
 
-        # Legge segnali ed esiti.
         signals, outcomes = _read_database(selected_config.database_path)
 
-        # Recupera l'ultimo segnale.
         latest_signal_timestamp = None
 
         if not signals.empty:
             latest_signal_timestamp = str(signals.iloc[-1]["timestamp"])
 
-        # Determina i timeframe disponibili.
-        service = _create_market_service(selected_config)
+        symbols, _ = _list_symbols(selected_config)
+
+        default_symbol = normalize_market_symbol(selected_config.symbol)
+
+        service = _create_market_service(
+            selected_config,
+            symbol=default_symbol,
+        )
 
         if service is not None:
             available_timeframes = [
@@ -716,7 +855,10 @@ def create_app(
         else:
             available_timeframes = [
                 item["code"]
-                for item in (_build_csv_timeframe_catalog(selected_config))
+                for item in _build_csv_timeframe_catalog(
+                    selected_config,
+                    symbol=default_symbol,
+                )
                 if item["available"]
             ]
 
@@ -725,9 +867,11 @@ def create_app(
             "engine_mode": "LIVE_PAPER",
             "paper_trading_only": True,
             "real_orders_enabled": False,
-            "symbol": selected_config.symbol,
-            "timeframe": selected_config.timeframe,
+            "symbol": default_symbol,
+            "symbols": [item["symbol"] for item in symbols],
+            "timeframe": (selected_config.timeframe),
             "model_timeframe": "M15",
+            "model_symbols": list(selected_config.model_symbols),
             "supported_timeframes": list(get_supported_timeframe_codes()),
             "available_timeframes": (available_timeframes),
             "signal_count": len(signals),
@@ -738,10 +882,11 @@ def create_app(
     return app
 
 
-# L'istanza Uvicorn usa lo storage persistente operativo.
+# L'istanza Uvicorn usa lo storage operativo.
 app = create_app(
     APIConfig(
         market_data_database_path=("data/live_paper/market_data.db"),
         database_path=("data/live_paper/live_paper.db"),
+        model_symbols=("EURUSD",),
     )
 )
