@@ -1,7 +1,10 @@
 """Processore ML riutilizzabile per il Live Paper Engine."""
 
-# Importa dataclass per rappresentare la configurazione immutabile.
-from dataclasses import dataclass
+# Importa os per leggere le soglie configurabili.
+import os
+
+# Importa dataclass e field per la configurazione immutabile.
+from dataclasses import dataclass, field
 
 # Importa Path per gestire il Model Registry.
 from pathlib import Path
@@ -22,13 +25,55 @@ from src.monitoring.ml_replay import (
 from src.risk.levels import RiskLevelConfig
 
 # Importa la configurazione del filtro di confidenza.
-from src.signals.confidence_filter import (
-    ConfidenceFilterConfig,
-)
+from src.signals.confidence_filter import ConfidenceFilterConfig
 
 
 class LiveMLProcessorError(ValueError):
     """Errore generato dalla configurazione del processore Live ML."""
+
+
+def _read_environment_threshold(
+    variable_name: str,
+    default: float,
+) -> float:
+    """Legge una soglia numerica dall'ambiente."""
+
+    # Recupera il valore oppure usa quello predefinito.
+    raw_value = os.environ.get(
+        variable_name,
+        str(default),
+    ).strip()
+
+    try:
+        # Converte il valore in numero decimale.
+        selected_value = float(raw_value)
+
+    except ValueError as error:
+        raise LiveMLProcessorError(f"{variable_name} deve essere un numero decimale.") from error
+
+    # Le probabilità devono essere comprese tra zero e uno.
+    if not 0.0 <= selected_value <= 1.0:
+        raise LiveMLProcessorError(f"{variable_name} deve essere compresa tra 0 e 1.")
+
+    return selected_value
+
+
+def _default_minimum_confidence() -> float:
+    """Restituisce la confidenza minima configurata."""
+
+    return _read_environment_threshold(
+        "MINIMUM_PREDICTION_CONFIDENCE",
+        0.60,
+    )
+
+
+def _default_minimum_probability_margin() -> float:
+    """Restituisce il margine minimo configurato."""
+
+    return _read_environment_threshold(
+        "MINIMUM_PROBABILITY_MARGIN",
+        0.10,
+    )
 
 
 @dataclass(frozen=True)
@@ -66,10 +111,10 @@ class LiveMLProcessorConfig:
     volatility_period: int = 20
 
     # Confidenza minima richiesta.
-    minimum_confidence: float = 0.60
+    minimum_confidence: float = field(default_factory=(_default_minimum_confidence))
 
-    # Margine minimo tra le probabilità.
-    minimum_probability_margin: float = 0.10
+    # Margine minimo tra prima e seconda probabilità.
+    minimum_probability_margin: float = field(default_factory=(_default_minimum_probability_margin))
 
     # Segnale usato quando il filtro rifiuta la previsione.
     fallback_signal: str = "NO_TRADE"
@@ -102,11 +147,11 @@ def validate_live_ml_processor_config(
     if not str(config.registry_path).strip():
         raise LiveMLProcessorError("Il percorso del Model Registry non può essere vuoto.")
 
-    # La versione del modello deve essere valorizzata.
+    # La versione deve essere valorizzata.
     if not config.model_version.strip():
         raise LiveMLProcessorError("La versione del modello non può essere vuota.")
 
-    # Il modello corrente è stato sviluppato sul timeframe M15.
+    # Il modello corrente opera su M15.
     if config.timeframe_minutes != 15:
         raise LiveMLProcessorError("Il modello corrente richiede il timeframe M15.")
 
@@ -126,6 +171,18 @@ def validate_live_ml_processor_config(
         invalid_text = ", ".join(sorted(invalid_statuses))
 
         raise LiveMLProcessorError(f"Stati modello non supportati: {invalid_text}.")
+
+    # Valida la confidenza minima.
+    if not (0.0 <= config.minimum_confidence <= 1.0):
+        raise LiveMLProcessorError("La confidenza minima deve essere compresa tra 0 e 1.")
+
+    # Valida il margine minimo.
+    if not (0.0 <= config.minimum_probability_margin <= 1.0):
+        raise LiveMLProcessorError("Il margine minimo deve essere compreso tra 0 e 1.")
+
+    # Il fallback deve restare NO_TRADE.
+    if config.fallback_signal != "NO_TRADE":
+        raise LiveMLProcessorError("Il segnale fallback deve essere NO_TRADE.")
 
     # La modalità reale non è consentita.
     if not config.paper_trading_only:
@@ -155,14 +212,14 @@ class RegisteredLiveMLProcessor:
             volatility_period=(self._config.volatility_period),
         )
 
-        # Costruisce la configurazione del filtro.
+        # Costruisce il filtro selettivo.
         self._confidence_config = ConfidenceFilterConfig(
             minimum_confidence=(self._config.minimum_confidence),
             minimum_probability_margin=(self._config.minimum_probability_margin),
             fallback_signal=(self._config.fallback_signal),
         )
 
-        # Costruisce la configurazione dei livelli.
+        # Costruisce i livelli teorici.
         self._risk_config = RiskLevelConfig(
             stop_atr_multiplier=(self._config.stop_atr_multiplier),
             minimum_stop_percentage=(self._config.minimum_stop_percentage),
@@ -186,16 +243,16 @@ class RegisteredLiveMLProcessor:
 
         return self._config
 
-    def validate_runtime_files(self) -> None:
-        """Verifica la presenza del registry prima dell'avvio."""
+    def validate_runtime_files(
+        self,
+    ) -> None:
+        """Verifica la presenza del registry."""
 
-        # Il registry deve essere disponibile.
         if not self._config.registry_path.exists():
             raise LiveMLProcessorError(
                 f"Model Registry non trovato: {self._config.registry_path.resolve()}."
             )
 
-        # Il percorso deve rappresentare un file.
         if not self._config.registry_path.is_file():
             raise LiveMLProcessorError("Il percorso del Model Registry non è un file.")
 
@@ -203,7 +260,7 @@ class RegisteredLiveMLProcessor:
         self,
         dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
-        """Elabora lo storico disponibile e restituisce il segnale corrente."""
+        """Elabora lo storico e restituisce il segnale corrente."""
 
         # Verifica il tipo dello storico.
         if not isinstance(
@@ -219,7 +276,7 @@ class RegisteredLiveMLProcessor:
         # Verifica il Model Registry.
         self.validate_runtime_files()
 
-        # Esegue il processore già utilizzato dal Replay ML.
+        # Esegue il processore usato dal Replay ML.
         result = process_ml_replay_snapshot(
             dataframe=dataframe,
             registry_path=(self._config.registry_path),
@@ -229,28 +286,28 @@ class RegisteredLiveMLProcessor:
             risk_config=(self._risk_config),
         )
 
-        # Identifica esplicitamente il contesto Live Paper.
+        # Identifica il contesto Live Paper.
         result = result.copy(deep=True)
 
         result["operating_mode"] = "LIVE_PAPER"
 
         result["execution_mode"] = "PAPER_ONLY"
 
-        # Restituisce una sola riga relativa alla candela corrente.
+        # Restituisce una sola riga.
         return result.reset_index(drop=True)
 
     def __call__(
         self,
         dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
-        """Consente di usare l'istanza come Callable del Live Paper Engine."""
+        """Consente di usare l'istanza come Callable."""
 
         return self.process(dataframe)
 
     def safe_summary(
         self,
     ) -> dict[str, object]:
-        """Restituisce un riepilogo operativo non sensibile."""
+        """Restituisce un riepilogo non sensibile."""
 
         return {
             "processor": ("REGISTERED_LIVE_ML_PROCESSOR"),
@@ -260,5 +317,6 @@ class RegisteredLiveMLProcessor:
             "allowed_model_statuses": list(self._config.allowed_model_statuses),
             "minimum_confidence": (self._config.minimum_confidence),
             "minimum_probability_margin": (self._config.minimum_probability_margin),
+            "fallback_signal": (self._config.fallback_signal),
             "paper_trading_only": (self._config.paper_trading_only),
         }
