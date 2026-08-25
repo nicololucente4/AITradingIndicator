@@ -90,7 +90,7 @@ class APIConfig:
     # Simboli per i quali esiste un modello validato.
     model_symbols: tuple[str, ...] = ("EURUSD",)
 
-    # Modalità esclusivamente simulata.
+    # ModalitÃ  esclusivamente simulata.
     paper_trading_only: bool = True
 
 
@@ -130,6 +130,9 @@ def _empty_signals_dataframe() -> pd.DataFrame:
             "take_profit_1",
             "take_profit_2",
             "take_profit_3",
+            "probability_long",
+            "probability_short",
+            "probability_no_trade",
             "prediction_confidence",
             "probability_margin",
             "model_version",
@@ -412,7 +415,7 @@ def _build_csv_timeframe_catalog(
 
     result = []
 
-    # Il CSV può essere utilizzato solo per il simbolo predefinito.
+    # Il CSV puÃ² essere utilizzato solo per il simbolo predefinito.
     csv_symbol = normalize_market_symbol(config.symbol)
 
     if symbol != csv_symbol:

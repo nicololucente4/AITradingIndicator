@@ -33,7 +33,7 @@ class LivePaperEngineConfig:
     # Percorso del database SQLite locale.
     database_path: str = "data/live_paper/live_paper.db"
 
-    # Modalità obbligatoriamente simulata.
+    # ModalitÃ  obbligatoriamente simulata.
     paper_trading_only: bool = True
 
 
@@ -41,7 +41,7 @@ class LivePaperEngineConfig:
 class LivePaperCycleReport:
     """Risultato di un singolo ciclo del Live Paper Engine."""
 
-    # Momento UTC in cui è stato eseguito il polling.
+    # Momento UTC in cui Ã¨ stato eseguito il polling.
     polled_at_utc: str
 
     # Numero di nuove candele chiuse ricevute.
@@ -59,7 +59,7 @@ class LivePaperCycleReport:
     # Numero di segnali duplicati ignorati.
     duplicate_signals: int
 
-    # Indica se lo storico minimo è disponibile.
+    # Indica se lo storico minimo Ã¨ disponibile.
     history_ready: bool
 
 
@@ -72,11 +72,11 @@ def _validate_config(
     if config.minimum_history_bars <= 0:
         raise LivePaperEngineError("Il numero minimo di candele deve essere maggiore di zero.")
 
-    # Il percorso del database non può essere vuoto.
+    # Il percorso del database non puÃ² essere vuoto.
     if not config.database_path.strip():
-        raise LivePaperEngineError("Il percorso del database non può essere vuoto.")
+        raise LivePaperEngineError("Il percorso del database non puÃ² essere vuoto.")
 
-    # Questa versione è utilizzabile esclusivamente in paper trading.
+    # Questa versione Ã¨ utilizzabile esclusivamente in paper trading.
     if not config.paper_trading_only:
         raise LivePaperEngineError("Il Live Paper Engine richiede paper_trading_only=true.")
 
@@ -90,7 +90,7 @@ def _validate_processor_output(
     if not isinstance(dataframe, pd.DataFrame):
         raise LivePaperEngineError("Il processore deve restituire un pandas DataFrame.")
 
-    # Il risultato non può essere vuoto.
+    # Il risultato non puÃ² essere vuoto.
     if dataframe.empty:
         raise LivePaperEngineError("Il processore ha restituito un DataFrame vuoto.")
 
@@ -209,6 +209,9 @@ class LivePaperEngine:
                     take_profit_1 REAL,
                     take_profit_2 REAL,
                     take_profit_3 REAL,
+                    probability_long REAL,
+                    probability_short REAL,
+                    probability_no_trade REAL,
                     prediction_confidence REAL,
                     probability_margin REAL,
                     model_version TEXT,
@@ -220,7 +223,29 @@ class LivePaperEngine:
                 """
             )
 
-            # Conferma la creazione della struttura.
+            # Recupera le colonne presenti nel database.
+            existing_columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(signals)").fetchall()
+            }
+
+            # Definisce le colonne probabilistiche.
+            probability_columns = {
+                "probability_long": "REAL",
+                "probability_short": "REAL",
+                "probability_no_trade": "REAL",
+            }
+
+            # Migra i database creati dalle versioni precedenti.
+            for (
+                column_name,
+                column_type,
+            ) in probability_columns.items():
+                if column_name in existing_columns:
+                    continue
+
+                connection.execute(f"ALTER TABLE signals ADD COLUMN {column_name} {column_type}")
+
+            # Conferma la creazione e le migrazioni.
             connection.commit()
 
     def _append_history(
@@ -322,6 +347,9 @@ class LivePaperEngine:
             self._optional_float(row.get("take_profit_1")),
             self._optional_float(row.get("take_profit_2")),
             self._optional_float(row.get("take_profit_3")),
+            self._optional_float(row.get("probability_long")),
+            self._optional_float(row.get("probability_short")),
+            self._optional_float(row.get("probability_no_trade")),
             self._optional_float(row.get("prediction_confidence")),
             self._optional_float(row.get("probability_margin")),
             self._optional_text(row.get("model_version")),
@@ -348,6 +376,9 @@ class LivePaperEngine:
                     take_profit_1,
                     take_profit_2,
                     take_profit_3,
+                    probability_long,
+                    probability_short,
+                    probability_no_trade,
                     prediction_confidence,
                     probability_margin,
                     model_version,
@@ -356,7 +387,7 @@ class LivePaperEngine:
                     operating_mode,
                     created_at_utc
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 values,
             )
@@ -389,7 +420,7 @@ class LivePaperEngine:
         # Aggiunge allo storico le nuove candele chiuse.
         self._append_history(poll_result.new_closed_bars)
 
-        # Controlla se è disponibile lo storico minimo.
+        # Controlla se Ã¨ disponibile lo storico minimo.
         history_ready = len(self._history) >= self._config.minimum_history_bars
 
         # Inizializza i contatori del ciclo.
@@ -399,7 +430,7 @@ class LivePaperEngine:
 
         # Esegue il processore solamente se:
         # 1. sono arrivate nuove candele;
-        # 2. lo storico minimo è disponibile.
+        # 2. lo storico minimo Ã¨ disponibile.
         if not poll_result.new_closed_bars.empty and history_ready:
             # Elabora una copia dello storico disponibile.
             processor_output = self._processor(self._history.copy(deep=True))

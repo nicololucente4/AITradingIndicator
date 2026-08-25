@@ -1,4 +1,4 @@
-// Tutti i timeframe professionali supportati.
+﻿// Tutti i timeframe professionali supportati.
 export type AvailableTimeframe =
   | "M1"
   | "M2"
@@ -15,7 +15,7 @@ export type AvailableTimeframe =
   | "D1"
   | "W1";
 
-// Alias mantenuto per compatibilità.
+// Alias mantenuto per compatibilitÃ .
 export type MarketTimeframe =
   AvailableTimeframe;
 
@@ -49,6 +49,9 @@ export type SignalRecord = {
   take_profit_1: number | null;
   take_profit_2: number | null;
   take_profit_3: number | null;
+  probability_long: number | null;
+  probability_short: number | null;
+  probability_no_trade: number | null;
   prediction_confidence: number | null;
   probability_margin: number | null;
   model_version: string | null;
