@@ -29,6 +29,11 @@ from src.api.market_service import (
     normalize_market_symbol,
 )
 
+# Importa il router del prezzo live MT5.
+from src.api.tick_router import (
+    router as tick_router,
+)
+
 # Importa il provider CSV validato.
 from src.data.file_provider import FileDataProvider
 
@@ -564,6 +569,9 @@ def create_app(
             "*",
         ],
     )
+
+    # Espone il prezzo tick live MT5.
+    app.include_router(tick_router)
 
     @app.get("/")
     def root() -> dict[str, object]:
