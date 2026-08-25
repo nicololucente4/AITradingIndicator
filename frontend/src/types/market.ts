@@ -123,6 +123,17 @@ export type TimeframeInformation = {
   reason: string | null;
 };
 
+// Tick live letto direttamente da MetaTrader 5.
+export type LiveMarketTick = {
+  symbol: string;
+  bid: number;
+  ask: number;
+  mid: number;
+  spread: number;
+  timestamp: string;
+  source: "MT5_LIVE_TICK";
+};
+
 // Risposta Health.
 export type HealthResponse = {
   status: string;

@@ -2,6 +2,7 @@
   AvailableTimeframe,
   CandlesResponse,
   HealthResponse,
+  LiveMarketTick,
   OutcomesResponse,
   SignalsResponse,
   StatisticsResponse,
@@ -11,7 +12,7 @@
 } from "@/src/types/market";
 
 // URL del backend FastAPI.
-const API_BASE_URL =
+export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "http://127.0.0.1:8000";
 
@@ -100,6 +101,22 @@ export function getCandles(
 
   return fetchFromApi<CandlesResponse>(
     `/api/v1/market/candles?${searchParameters.toString()}`
+  );
+}
+
+/**
+ * Recupera l'ultimo tick live direttamente da MT5.
+ */
+export function getLiveTick(
+  symbol: string
+): Promise<LiveMarketTick> {
+  const searchParameters =
+    new URLSearchParams({
+      symbol,
+    });
+
+  return fetchFromApi<LiveMarketTick>(
+    `/api/v1/market/tick?${searchParameters.toString()}`
   );
 }
 
