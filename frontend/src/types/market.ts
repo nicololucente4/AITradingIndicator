@@ -1,4 +1,4 @@
-// Tutti i timeframe professionali supportati dal sistema.
+// Tutti i timeframe professionali supportati.
 export type AvailableTimeframe =
   | "M1"
   | "M2"
@@ -15,7 +15,7 @@ export type AvailableTimeframe =
   | "D1"
   | "W1";
 
-// Alias mantenuto per compatibilità con i componenti esistenti.
+// Alias mantenuto per compatibilità.
 export type MarketTimeframe =
   AvailableTimeframe;
 
@@ -29,7 +29,7 @@ export type Candle = {
   volume: number;
 };
 
-// Segnali supportati dal sistema.
+// Decisioni supportate.
 export type TradingSignal =
   | "LONG"
   | "SHORT"
@@ -102,7 +102,15 @@ export type LivePaperStatistics = {
   paper_trading_only: boolean;
 };
 
-// Informazioni restituite per ogni timeframe.
+// Informazioni di uno strumento disponibile.
+export type MarketSymbolInformation = {
+  symbol: string;
+  native_timeframe_count: number;
+  stored_candle_count: number;
+  model_enabled: boolean;
+};
+
+// Informazioni di un timeframe.
 export type TimeframeInformation = {
   code: AvailableTimeframe;
   label: string;
@@ -134,8 +142,10 @@ export type SystemStatusResponse = {
   paper_trading_only: boolean;
   real_orders_enabled: boolean;
   symbol: string;
+  symbols: string[];
   timeframe: AvailableTimeframe;
   model_timeframe: AvailableTimeframe;
+  model_symbols: string[];
   supported_timeframes: AvailableTimeframe[];
   available_timeframes: AvailableTimeframe[];
   signal_count: number;
@@ -143,12 +153,24 @@ export type SystemStatusResponse = {
   latest_signal_timestamp: string | null;
 };
 
+// Risposta Symbols.
+export type SymbolsResponse = {
+  source_type:
+    | "SQLITE_MARKET_DATA"
+    | "CSV_FALLBACK";
+  default_symbol: string;
+  count: number;
+  symbols: MarketSymbolInformation[];
+};
+
 // Risposta Candles.
 export type CandlesResponse = {
   symbol: string;
   timeframe: AvailableTimeframe;
   source_timeframe: AvailableTimeframe | null;
-  source_type: "SQLITE_MARKET_DATA" | "CSV_FALLBACK";
+  source_type:
+    | "SQLITE_MARKET_DATA"
+    | "CSV_FALLBACK";
   native: boolean;
   model_enabled: boolean;
   timezone: string;
@@ -158,9 +180,13 @@ export type CandlesResponse = {
 
 // Risposta Timeframes.
 export type TimeframesResponse = {
+  symbol: string;
   source_timeframe: AvailableTimeframe;
-  source_type: "SQLITE_MARKET_DATA" | "CSV_FALLBACK";
+  source_type:
+    | "SQLITE_MARKET_DATA"
+    | "CSV_FALLBACK";
   model_timeframe: AvailableTimeframe;
+  model_enabled: boolean;
   timeframes: TimeframeInformation[];
 };
 

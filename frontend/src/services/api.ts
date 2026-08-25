@@ -5,6 +5,7 @@
   OutcomesResponse,
   SignalsResponse,
   StatisticsResponse,
+  SymbolsResponse,
   SystemStatusResponse,
   TimeframesResponse,
 } from "@/src/types/market";
@@ -20,7 +21,6 @@ const API_BASE_URL =
 async function fetchFromApi<T>(
   endpoint: string
 ): Promise<T> {
-  // Esegue la richiesta senza cache.
   const response = await fetch(
     `${API_BASE_URL}${endpoint}`,
     {
@@ -28,19 +28,17 @@ async function fetchFromApi<T>(
     }
   );
 
-  // Interrompe il caricamento in caso di errore HTTP.
   if (!response.ok) {
     throw new Error(
       `FastAPI request failed: ${endpoint}, status ${response.status}`
     );
   }
 
-  // Converte la risposta nel tipo richiesto.
   return (await response.json()) as T;
 }
 
 /**
- * Recupera lo stato di salute del backend.
+ * Recupera lo stato di salute.
  */
 export function getHealth():
   Promise<HealthResponse> {
@@ -50,7 +48,7 @@ export function getHealth():
 }
 
 /**
- * Recupera lo stato sintetico del sistema.
+ * Recupera lo stato sintetico.
  */
 export function getSystemStatus():
   Promise<SystemStatusResponse> {
@@ -60,25 +58,42 @@ export function getSystemStatus():
 }
 
 /**
- * Recupera il catalogo dei timeframe.
+ * Recupera gli strumenti disponibili.
  */
-export function getTimeframes():
-  Promise<TimeframesResponse> {
-  return fetchFromApi<TimeframesResponse>(
-    "/api/v1/market/timeframes"
+export function getSymbols():
+  Promise<SymbolsResponse> {
+  return fetchFromApi<SymbolsResponse>(
+    "/api/v1/market/symbols"
   );
 }
 
 /**
- * Recupera le candele del timeframe richiesto.
+ * Recupera i timeframe dello strumento.
+ */
+export function getTimeframes(
+  symbol: string
+): Promise<TimeframesResponse> {
+  const searchParameters =
+    new URLSearchParams({
+      symbol,
+    });
+
+  return fetchFromApi<TimeframesResponse>(
+    `/api/v1/market/timeframes?${searchParameters.toString()}`
+  );
+}
+
+/**
+ * Recupera le candele richieste.
  */
 export function getCandles(
+  symbol: string,
   timeframe: AvailableTimeframe,
   limit = 500
 ): Promise<CandlesResponse> {
-  // Prepara i parametri URL.
   const searchParameters =
     new URLSearchParams({
+      symbol,
       timeframe,
       limit: String(limit),
     });

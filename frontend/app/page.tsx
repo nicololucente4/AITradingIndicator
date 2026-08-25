@@ -5,6 +5,7 @@ import MarketStatus from "@/src/components/MarketStatus";
 import OutcomesTable from "@/src/components/OutcomesTable";
 import SignalsTable from "@/src/components/SignalsTable";
 import StatisticsPanel from "@/src/components/StatisticsPanel";
+import SymbolSelector from "@/src/components/SymbolSelector";
 import TimeframeSelector from "@/src/components/TimeframeSelector";
 import UnifiedMarketChart from "@/src/components/UnifiedMarketChart";
 
@@ -15,6 +16,7 @@ import {
   getOutcomes,
   getSignals,
   getStatistics,
+  getSymbols,
   getSystemStatus,
   getTimeframes,
 } from "@/src/services/api";
@@ -24,6 +26,7 @@ import type {
   AvailableTimeframe,
   Candle,
   LivePaperStatistics,
+  MarketSymbolInformation,
   OutcomeRecord,
   SignalRecord,
   TimeframeInformation,
@@ -35,7 +38,7 @@ export const dynamic = "force-dynamic";
 // Disabilita la cache statica della pagina.
 export const revalidate = 0;
 
-// Elenca tutti i timeframe professionali riconosciuti.
+// Elenca tutti i timeframe riconosciuti.
 const SUPPORTED_TIMEFRAMES:
   AvailableTimeframe[] = [
     "M1",
@@ -54,40 +57,23 @@ const SUPPORTED_TIMEFRAMES:
     "W1",
   ];
 
-// Catalogo minimo usato se FastAPI non è raggiungibile.
-const FALLBACK_TIMEFRAMES:
-  TimeframeInformation[] =
-  SUPPORTED_TIMEFRAMES.map(
-    (timeframe) => ({
-      code: timeframe,
-      label: getTimeframeLabel(
-        timeframe
-      ),
-      minutes:
-        getTimeframeMinutes(
-          timeframe
-        ),
-      available:
-        timeframe === "M15",
-      native:
-        timeframe === "M15",
-      model_enabled:
-        timeframe === "M15",
-      source_timeframe:
-        timeframe === "M15"
-          ? "M15"
-          : null,
+// Strumento disponibile in modalità fallback.
+const FALLBACK_SYMBOLS:
+  MarketSymbolInformation[] = [
+    {
+      symbol: "EURUSD",
+      native_timeframe_count: 1,
       stored_candle_count: 0,
-      reason:
-        timeframe === "M15"
-          ? null
-          : "Disponibilità non verificabile senza collegamento a FastAPI.",
-    })
-  );
+      model_enabled: true,
+    },
+  ];
 
-// Rappresenta i parametri URL ricevuti dalla pagina.
+// Rappresenta i parametri URL della pagina.
 type HomePageProps = {
   searchParams: Promise<{
+    symbol?:
+      | string
+      | string[];
     timeframe?:
       | string
       | string[];
@@ -95,12 +81,11 @@ type HomePageProps = {
 };
 
 /**
- * Restituisce l'etichetta professionale del timeframe.
+ * Restituisce l'etichetta grafica del timeframe.
  */
 function getTimeframeLabel(
   timeframe: AvailableTimeframe
 ): string {
-  // Associa il codice interno all'etichetta grafica.
   const labels: Record<
     AvailableTimeframe,
     string
@@ -130,7 +115,6 @@ function getTimeframeLabel(
 function getTimeframeMinutes(
   timeframe: AvailableTimeframe
 ): number {
-  // Associa ogni codice alla relativa durata.
   const minutes: Record<
     AvailableTimeframe,
     number
@@ -155,7 +139,87 @@ function getTimeframeMinutes(
 }
 
 /**
- * Controlla se una stringa rappresenta un timeframe supportato.
+ * Crea il catalogo timeframe di fallback.
+ */
+function createFallbackTimeframes():
+  TimeframeInformation[] {
+  return SUPPORTED_TIMEFRAMES.map(
+    (timeframe) => ({
+      code: timeframe,
+      label:
+        getTimeframeLabel(
+          timeframe
+        ),
+      minutes:
+        getTimeframeMinutes(
+          timeframe
+        ),
+      available:
+        timeframe === "M15",
+      native:
+        timeframe === "M15",
+      model_enabled:
+        timeframe === "M15",
+      source_timeframe:
+        timeframe === "M15"
+          ? "M15"
+          : null,
+      stored_candle_count: 0,
+      reason:
+        timeframe === "M15"
+          ? null
+          : "Disponibilità non verificabile senza FastAPI.",
+    })
+  );
+}
+
+/**
+ * Recupera il primo valore di un parametro URL.
+ */
+function readSearchParameter(
+  value:
+    | string
+    | string[]
+    | undefined
+): string | undefined {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value;
+}
+
+/**
+ * Normalizza il simbolo richiesto.
+ */
+function normalizeRequestedSymbol(
+  value:
+    | string
+    | string[]
+    | undefined
+): string {
+  const selectedValue =
+    readSearchParameter(value);
+
+  if (
+    selectedValue === undefined
+  ) {
+    return "EURUSD";
+  }
+
+  const normalizedValue =
+    selectedValue
+      .trim()
+      .toUpperCase();
+
+  return (
+    normalizedValue ||
+    "EURUSD"
+  );
+}
+
+/**
+ * Verifica un codice timeframe.
  */
 function isSupportedTimeframe(
   value: string
@@ -166,7 +230,7 @@ function isSupportedTimeframe(
 }
 
 /**
- * Recupera il valore timeframe dal parametro URL.
+ * Recupera il timeframe richiesto.
  */
 function readRequestedTimeframe(
   value:
@@ -174,29 +238,76 @@ function readRequestedTimeframe(
     | string[]
     | undefined
 ): AvailableTimeframe {
-  // Se il parametro è ripetuto, usa il primo valore.
   const selectedValue =
-    Array.isArray(value)
-      ? value[0]
-      : value;
+    readSearchParameter(value);
 
-  // Usa M15 se il parametro è assente.
   if (
     selectedValue === undefined
   ) {
     return "M15";
   }
 
-  // Usa M15 se il codice non è supportato.
+  const normalizedValue =
+    selectedValue
+      .trim()
+      .toUpperCase();
+
   if (
     !isSupportedTimeframe(
-      selectedValue
+      normalizedValue
     )
   ) {
     return "M15";
   }
 
-  return selectedValue;
+  return normalizedValue;
+}
+
+/**
+ * Seleziona uno strumento realmente disponibile.
+ */
+function selectAvailableSymbol(
+  requestedSymbol: string,
+  symbols: MarketSymbolInformation[],
+  defaultSymbol: string
+): string {
+  // Cerca lo strumento richiesto nell'elenco disponibile.
+  const requestedInformation =
+    symbols.find(
+      (item) =>
+        item.symbol ===
+        requestedSymbol
+    );
+
+  // Mantiene lo strumento richiesto se disponibile.
+  if (
+    requestedInformation !==
+    undefined
+  ) {
+    return requestedInformation.symbol;
+  }
+
+  // Cerca lo strumento predefinito comunicato dal backend.
+  const defaultInformation =
+    symbols.find(
+      (item) =>
+        item.symbol ===
+        defaultSymbol
+    );
+
+  // Usa lo strumento predefinito se disponibile.
+  if (
+    defaultInformation !==
+    undefined
+  ) {
+    return defaultInformation.symbol;
+  }
+
+  // Usa il primo strumento disponibile come ultimo fallback.
+  return (
+    symbols[0]?.symbol ??
+    defaultSymbol
+  );
 }
 
 /**
@@ -208,7 +319,6 @@ function selectAvailableTimeframe(
   timeframes:
     TimeframeInformation[]
 ): AvailableTimeframe {
-  // Cerca il timeframe richiesto nel catalogo API.
   const requestedInformation =
     timeframes.find(
       (timeframe) =>
@@ -216,7 +326,6 @@ function selectAvailableTimeframe(
         requestedTimeframe
     );
 
-  // Mantiene il timeframe se disponibile.
   if (
     requestedInformation
       ?.available === true
@@ -224,7 +333,6 @@ function selectAvailableTimeframe(
     return requestedTimeframe;
   }
 
-  // Preferisce M15 come fallback operativo.
   const m15Information =
     timeframes.find(
       (timeframe) =>
@@ -232,20 +340,18 @@ function selectAvailableTimeframe(
     );
 
   if (
-    m15Information?.available ===
-    true
+    m15Information
+      ?.available === true
   ) {
     return "M15";
   }
 
-  // Usa il primo timeframe disponibile.
   const firstAvailable =
     timeframes.find(
       (timeframe) =>
         timeframe.available
     );
 
-  // Se non esistono dati, mantiene M15.
   return (
     firstAvailable?.code ??
     "M15"
@@ -258,21 +364,27 @@ function selectAvailableTimeframe(
 export default async function Home({
   searchParams,
 }: HomePageProps) {
-  // Legge i parametri URL asincroni di Next.js.
+  // Legge i parametri URL.
   const resolvedSearchParams =
     await searchParams;
 
-  // Recupera il timeframe richiesto dall'URL.
+  const requestedSymbol =
+    normalizeRequestedSymbol(
+      resolvedSearchParams.symbol
+    );
+
   const requestedTimeframe =
     readRequestedTimeframe(
       resolvedSearchParams.timeframe
     );
 
-  // Definisce il catalogo di fallback.
-  let timeframes =
-    FALLBACK_TIMEFRAMES;
+  // Inizializza strumenti e catalogo fallback.
+  let symbols =
+    FALLBACK_SYMBOLS;
 
-  // Indica la sorgente dei dati di mercato.
+  let defaultSymbol =
+    "EURUSD";
+
   let marketSource:
     | "SQLITE_MARKET_DATA"
     | "CSV_FALLBACK"
@@ -280,33 +392,73 @@ export default async function Home({
     "UNAVAILABLE";
 
   try {
-    // Recupera disponibilità e origine dei timeframe.
-    const timeframeResponse =
-      await getTimeframes();
+    const symbolsResponse =
+      await getSymbols();
 
-    // Memorizza il catalogo restituito da FastAPI.
-    timeframes =
-      timeframeResponse.timeframes;
+    if (
+      symbolsResponse.symbols.length >
+      0
+    ) {
+      symbols =
+        symbolsResponse.symbols;
+    }
 
-    // Memorizza la sorgente dei dati.
+    defaultSymbol =
+      symbolsResponse.default_symbol;
+
     marketSource =
-      timeframeResponse.source_type;
+      symbolsResponse.source_type;
   } catch (error) {
-    // Mantiene disponibile il catalogo minimo locale.
     console.error(
-      "Impossibile caricare il catalogo timeframe:",
+      "Impossibile caricare gli strumenti:",
       error
     );
   }
 
-  // Seleziona una risoluzione realmente disponibile.
+  // Seleziona uno strumento realmente disponibile.
+  const selectedSymbol =
+    selectAvailableSymbol(
+      requestedSymbol,
+      symbols,
+      defaultSymbol
+    );
+
+  // Carica i timeframe specifici dello strumento.
+  let timeframes =
+    createFallbackTimeframes();
+
+  let symbolModelEnabled =
+    false;
+
+  try {
+    const timeframeResponse =
+      await getTimeframes(
+        selectedSymbol
+      );
+
+    timeframes =
+      timeframeResponse.timeframes;
+
+    symbolModelEnabled =
+      timeframeResponse.model_enabled;
+
+    marketSource =
+      timeframeResponse.source_type;
+  } catch (error) {
+    console.error(
+      "Impossibile caricare i timeframe:",
+      error
+    );
+  }
+
+  // Seleziona una risoluzione disponibile.
   const selectedTimeframe =
     selectAvailableTimeframe(
       requestedTimeframe,
       timeframes
     );
 
-  // Recupera le informazioni del timeframe selezionato.
+  // Recupera i metadati del timeframe selezionato.
   const selectedTimeframeInformation =
     timeframes.find(
       (timeframe) =>
@@ -314,21 +466,28 @@ export default async function Home({
         selectedTimeframe
     ) ?? null;
 
-  // Definisce i valori di fallback.
-  let online = false;
-  let symbol = "EURUSD";
+  // Il modello è utilizzabile solo se dichiarato dal backend.
+  const selectedModelEnabled =
+    symbolModelEnabled &&
+    selectedTimeframeInformation
+      ?.model_enabled === true;
 
-  // Inizializza i dati applicativi.
+  // Inizializza lo stato della dashboard.
+  let online = false;
+
   let candles: Candle[] = [];
-  let signals: SignalRecord[] = [];
+
+  let signals: SignalRecord[] =
+    [];
+
   let outcomes: OutcomeRecord[] =
     [];
+
   let statistics:
     | LivePaperStatistics
     | null = null;
 
   try {
-    // Interroga gli endpoint FastAPI in parallelo.
     const [
       health,
       status,
@@ -340,6 +499,7 @@ export default async function Home({
       getHealth(),
       getSystemStatus(),
       getCandles(
+        selectedSymbol,
         selectedTimeframe,
         500
       ),
@@ -348,47 +508,47 @@ export default async function Home({
       getStatistics(),
     ]);
 
-    // Aggiorna lo stato del terminale.
     online =
       health.status ===
-      "healthy";
+      "healthy" &&
+      status.api_status ===
+      "ONLINE";
 
-    symbol = status.symbol;
-
-    // Memorizza i dati ricevuti da FastAPI.
     candles =
       marketResponse.candles;
 
-    signals =
-      signalsResponse.signals;
-
-    outcomes =
-      outcomesResponse.outcomes;
-
-    statistics =
-      statisticsResponse.statistics;
-
-    // Usa la sorgente effettiva della risposta candele.
     marketSource =
       marketResponse.source_type;
+
+    // Lo storico attuale appartiene al motore operativo.
+    // Finché non esiste un modello per il simbolo,
+    // non mostra segnali appartenenti ad altri strumenti.
+    if (selectedModelEnabled) {
+      signals =
+        signalsResponse.signals;
+
+      outcomes =
+        outcomesResponse.outcomes;
+
+      statistics =
+        statisticsResponse.statistics;
+    }
   } catch (error) {
-    // Registra l'errore nel terminale Next.js.
     console.error(
       "Impossibile caricare i dati FastAPI:",
       error
     );
 
-    // Mantiene la dashboard disponibile in modalità offline.
     online = false;
   }
 
-  // I segnali attuali sono prodotti solamente sul timeframe M15.
+  // Mostra marker soltanto per una combinazione ML valida.
   const chartSignals =
-    selectedTimeframe === "M15"
+    selectedModelEnabled
       ? signals
       : [];
 
-  // Conta i segnali LONG.
+  // Conta i segnali disponibili.
   const longCount =
     signals.filter(
       (signal) =>
@@ -396,7 +556,6 @@ export default async function Home({
         "LONG"
     ).length;
 
-  // Conta i segnali SHORT.
   const shortCount =
     signals.filter(
       (signal) =>
@@ -404,7 +563,6 @@ export default async function Home({
         "SHORT"
     ).length;
 
-  // Conta i segnali NO_TRADE.
   const noTradeCount =
     signals.filter(
       (signal) =>
@@ -412,7 +570,7 @@ export default async function Home({
         "NO_TRADE"
     ).length;
 
-  // Prepara la descrizione della sorgente del timeframe.
+  // Costruisce la descrizione della sorgente.
   const timeframeSourceText =
     selectedTimeframeInformation
       ?.native === true
@@ -421,12 +579,11 @@ export default async function Home({
             ?.source_timeframe !==
           null &&
         selectedTimeframeInformation
-          ?.source_timeframe !==
+            ?.source_timeframe !==
           undefined
         ? `Aggregato da ${selectedTimeframeInformation.source_timeframe}`
         : "Sorgente non disponibile";
 
-  // Prepara l'etichetta dello storage.
   const marketSourceText =
     marketSource ===
     "SQLITE_MARKET_DATA"
@@ -439,7 +596,7 @@ export default async function Home({
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <Header
-        symbol={symbol}
+        symbol={selectedSymbol}
         timeframe={
           selectedTimeframe
         }
@@ -447,6 +604,25 @@ export default async function Home({
       />
 
       <div className="space-y-5 p-5">
+        <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <div className="mb-3 flex flex-col gap-1">
+            <h2 className="text-sm font-semibold text-white">
+              Strumento
+            </h2>
+
+            <p className="text-xs text-slate-500">
+              Seleziona la coppia Forex o l&apos;oro da analizzare.
+            </p>
+          </div>
+
+          <SymbolSelector
+            selectedSymbol={
+              selectedSymbol
+            }
+            symbols={symbols}
+          />
+        </section>
+
         <section className="grid grid-cols-2 gap-4 md:grid-cols-5">
           <MarketStatus
             online={online}
@@ -497,7 +673,7 @@ export default async function Home({
           <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <h2 className="text-lg font-semibold">
-                {symbol} Chart
+                {selectedSymbol} Chart
               </h2>
 
               <p className="mt-1 text-xs text-slate-400">
@@ -530,21 +706,22 @@ export default async function Home({
             />
           </div>
 
-          {selectedTimeframe !==
-            "M15" && (
+          {!selectedModelEnabled && (
             <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-              I segnali ML sono
-              attualmente generati
-              esclusivamente sul
-              timeframe 15m e non
-              vengono sovrapposti a
-              questa risoluzione.
+              Dati disponibili per l&apos;analisi grafica. Un modello ML validato per{" "}
+              {selectedSymbol}
+              {" "}
+              {selectedTimeframe}
+              {" "}
+              non è ancora registrato.
             </div>
           )}
 
           <MarketSnapshot
             candles={candles}
-            symbol={symbol}
+            symbol={
+              selectedSymbol
+            }
             timeframe={
               selectedTimeframe
             }
@@ -552,9 +729,7 @@ export default async function Home({
 
           {candles.length > 0 ? (
             <UnifiedMarketChart
-              key={
-                selectedTimeframe
-              }
+              key={`${selectedSymbol}-${selectedTimeframe}`}
               candles={candles}
               signals={chartSignals}
               timeframe={
@@ -563,11 +738,10 @@ export default async function Home({
             />
           ) : (
             <div className="flex h-[600px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-slate-500">
-              Nessuna candela
-              disponibile per{" "}
-              {
-                selectedTimeframe
-              }
+              Nessuna candela disponibile per{" "}
+              {selectedSymbol}
+              {" "}
+              {selectedTimeframe}
             </div>
           )}
         </section>
