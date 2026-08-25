@@ -1,6 +1,6 @@
-"""Coordinamento di segnali, esiti e statistiche Live Paper."""
+"""Coordinamento di segnali, esiti, trade e statistiche Live Paper."""
 
-# Importa dataclass per rappresentare il report del ciclo completo.
+# Importa dataclass per rappresentare il report del ciclo.
 from dataclasses import dataclass
 
 # Importa pandas per gestire timestamp e DataFrame.
@@ -24,6 +24,13 @@ from src.monitoring.outcome_tracker import (
     OutcomeUpdateReport,
 )
 
+# Importa il registro persistente dei paper trade.
+from src.monitoring.paper_trade_registry import (
+    PaperTradeRegistry,
+    PaperTradeRegistryConfig,
+    PaperTradeSyncReport,
+)
+
 
 class LivePaperCoordinatorError(ValueError):
     """Errore generato dal coordinatore Live Paper."""
@@ -39,37 +46,83 @@ class LivePaperCoordinatorReport:
     # Risultato dell'aggiornamento degli esiti.
     outcome_report: OutcomeUpdateReport
 
+    # Risultato della sincronizzazione dei paper trade.
+    trade_report: PaperTradeSyncReport
+
     # Statistiche aggiornate della sessione.
     statistics: LivePaperStatistics
 
 
 class LivePaperCoordinator:
-    """Coordina segnali, esiti e statistiche Live Paper."""
+    """Coordina segnali, esiti, paper trade e statistiche."""
 
     def __init__(
         self,
         engine: LivePaperEngine,
         outcome_tracker: OutcomeTracker,
+        paper_trade_registry: PaperTradeRegistry | None = None,
     ) -> None:
         """Inizializza il coordinatore."""
 
         # Verifica il tipo del Live Paper Engine.
-        if not isinstance(engine, LivePaperEngine):
+        if not isinstance(
+            engine,
+            LivePaperEngine,
+        ):
             raise TypeError("engine deve essere un'istanza di LivePaperEngine.")
 
         # Verifica il tipo dell'Outcome Tracker.
-        if not isinstance(outcome_tracker, OutcomeTracker):
+        if not isinstance(
+            outcome_tracker,
+            OutcomeTracker,
+        ):
             raise TypeError("outcome_tracker deve essere un'istanza di OutcomeTracker.")
 
-        # I due componenti devono utilizzare lo stesso database.
+        # I componenti devono usare lo stesso database.
         if engine.database_path.resolve() != outcome_tracker.database_path.resolve():
             raise LivePaperCoordinatorError(
                 "Live Paper Engine e Outcome Tracker devono utilizzare lo stesso database."
             )
 
+        # Se non viene fornito un registro, crea quello
+        # corrispondente al motore operativo corrente.
+        selected_trade_registry = paper_trade_registry or PaperTradeRegistry(
+            engine.database_path,
+            config=PaperTradeRegistryConfig(
+                symbol="EURUSD",
+                timeframe="M15",
+                one_open_trade_per_symbol=True,
+                paper_trading_only=True,
+            ),
+        )
+
+        # Verifica il tipo del registro dei trade.
+        if not isinstance(
+            selected_trade_registry,
+            PaperTradeRegistry,
+        ):
+            raise TypeError("paper_trade_registry deve essere un'istanza di PaperTradeRegistry.")
+
+        # Anche il registro deve usare lo stesso database.
+        if engine.database_path.resolve() != selected_trade_registry.database_path.resolve():
+            raise LivePaperCoordinatorError(
+                "Il registro paper trade deve utilizzare lo stesso database del Live Paper Engine."
+            )
+
         # Salva i componenti verificati.
         self._engine = engine
+
         self._outcome_tracker = outcome_tracker
+
+        self._paper_trade_registry = selected_trade_registry
+
+    @property
+    def paper_trade_registry(
+        self,
+    ) -> PaperTradeRegistry:
+        """Restituisce il registro persistente dei trade."""
+
+        return self._paper_trade_registry
 
     def run_cycle(
         self,
@@ -80,16 +133,11 @@ class LivePaperCoordinator:
         Il ciclo:
 
         1. interroga il provider;
-        2. aggiorna lo storico;
+        2. aggiorna lo storico delle candele chiuse;
         3. genera e salva il nuovo segnale;
         4. rivaluta gli esiti ancora pendenti;
-        5. aggiorna le statistiche.
-
-        Args:
-            current_time_utc: Momento UTC del ciclo.
-
-        Returns:
-            Report completo del ciclo Live Paper.
+        5. apre o chiude i paper trade;
+        6. aggiorna le statistiche.
         """
 
         # Converte il timestamp ricevuto.
@@ -102,8 +150,8 @@ class LivePaperCoordinator:
         # Normalizza il timestamp in UTC.
         selected_time = selected_time.tz_convert("UTC")
 
-        # Esegue polling, aggiornamento storico e generazione segnale.
-        engine_report = self._engine.run_cycle(current_time_utc=selected_time)
+        # Esegue polling, storico e inferenza.
+        engine_report = self._engine.run_cycle(current_time_utc=(selected_time))
 
         # Carica il registro immutabile dei segnali.
         signals = self._engine.load_signals()
@@ -111,8 +159,7 @@ class LivePaperCoordinator:
         # Recupera lo storico OHLCV disponibile.
         market_data = self._engine.history
 
-        # L'Outcome Tracker richiede lo schema dei segnali.
-        # Se non esistono ancora segnali, crea un registro vuoto compatibile.
+        # Senza segnali restituisce un report vuoto.
         if signals.empty:
             outcome_report = OutcomeUpdateReport(
                 evaluated_signals=0,
@@ -123,16 +170,23 @@ class LivePaperCoordinator:
                 ignored_no_trade_signals=0,
             )
 
-        # Valuta gli esiti solamente quando esiste almeno un segnale.
+        # Con segnali disponibili valuta gli esiti.
         else:
             outcome_report = self._outcome_tracker.evaluate(
                 signals=signals,
                 market_data=market_data,
-                evaluated_at_utc=selected_time,
+                evaluated_at_utc=(selected_time),
             )
 
         # Carica gli esiti conclusivi.
         outcomes = self._outcome_tracker.load_outcomes()
+
+        # Sincronizza aperture e chiusure paper.
+        trade_report = self._paper_trade_registry.synchronize(
+            signals=signals,
+            outcomes=outcomes,
+            synchronized_at_utc=(selected_time),
+        )
 
         # Genera le statistiche aggiornate.
         statistics = generate_live_paper_statistics(
@@ -144,5 +198,6 @@ class LivePaperCoordinator:
         return LivePaperCoordinatorReport(
             engine_report=engine_report,
             outcome_report=outcome_report,
+            trade_report=trade_report,
             statistics=statistics,
         )
