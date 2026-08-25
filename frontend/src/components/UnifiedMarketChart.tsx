@@ -299,7 +299,7 @@ function prepareSignalMarkers(
     const confidence =
       signal.prediction_confidence ===
       null
-        ? "N/D"
+        ? ""
         : `${Math.round(
             signal.prediction_confidence *
               100
@@ -311,9 +311,12 @@ function prepareSignalMarkers(
       markers.push({
         time,
         position: "belowBar",
-        color: "#089981",
+        color: "#22c55e",
         shape: "arrowUp",
-        text: `LONG ${confidence}`,
+        text:
+          confidence === ""
+            ? "L"
+            : `L ${confidence}`,
       });
 
       continue;
@@ -325,22 +328,19 @@ function prepareSignalMarkers(
       markers.push({
         time,
         position: "aboveBar",
-        color: "#f23645",
+        color: "#ef4444",
         shape: "arrowDown",
-        text: `SHORT ${confidence}`,
+        text:
+          confidence === ""
+            ? "S"
+            : `S ${confidence}`,
       });
 
       continue;
     }
 
-    // NO_TRADE rimane visibile come marker discreto.
-    markers.push({
-      time,
-      position: "inBar",
-      color: "#94a3b8",
-      shape: "circle",
-      text: "NO TRADE",
-    });
+    // NO_TRADE non viene mostrato sul grafico
+    // per evitare di sovraccaricare le candele.
   }
 
   markers.sort(

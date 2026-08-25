@@ -1,4 +1,5 @@
 ﻿// Importa i componenti del terminale.
+import DecisionOverlay from "@/src/components/DecisionOverlay";
 import Header from "@/src/components/Header";
 import MarketSnapshot from "@/src/components/MarketSnapshot";
 import MarketStatus from "@/src/components/MarketStatus";
@@ -548,6 +549,23 @@ export default async function Home({
       ? signals
       : [];
 
+  // Recupera l'ultima decisione disponibile.
+  const latestDecision =
+    chartSignals.length > 0
+      ? [...chartSignals].sort(
+          (
+            firstSignal,
+            secondSignal
+          ) =>
+            Date.parse(
+              secondSignal.timestamp
+            ) -
+            Date.parse(
+              firstSignal.timestamp
+            )
+        )[0]
+      : null;      
+
   // Conta i segnali disponibili.
   const longCount =
     signals.filter(
@@ -727,15 +745,29 @@ export default async function Home({
             }
           />
 
-          {candles.length > 0 ? (
-            <UnifiedMarketChart
-              key={`${selectedSymbol}-${selectedTimeframe}`}
-              candles={candles}
-              signals={chartSignals}
-              timeframe={
-                selectedTimeframe
-              }
-            />
+           {candles.length > 0 ? (
+            <div className="relative">
+              <DecisionOverlay
+                signal={
+                  latestDecision
+                }
+                symbol={
+                  selectedSymbol
+                }
+                timeframe={
+                  selectedTimeframe
+                }
+              />
+
+              <UnifiedMarketChart
+                key={`${selectedSymbol}-${selectedTimeframe}`}
+                candles={candles}
+                signals={chartSignals}
+                timeframe={
+                  selectedTimeframe
+                }
+              />
+            </div>
           ) : (
             <div className="flex h-[600px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-slate-500">
               Nessuna candela disponibile per{" "}
