@@ -1,4 +1,4 @@
-"""Endpoint FastAPI per il prezzo tick live MT5."""
+"""Router FastAPI per prezzo live MT5 e paper trade."""
 
 # Importa importlib per caricare MetaTrader5 dinamicamente.
 import importlib
@@ -10,10 +10,11 @@ from threading import Lock
 from typing import cast
 
 # Importa gli strumenti FastAPI.
-from fastapi import (
-    APIRouter,
-    HTTPException,
-    Query,
+from fastapi import APIRouter, HTTPException, Query
+
+# Importa il router delle operazioni paper.
+from src.api.trades_router import (
+    router as trades_router,
 )
 
 # Importa il caricatore della configurazione locale.
@@ -32,16 +33,18 @@ from src.data.mt5_tick_service import (
     MetaTrader5TickServiceError,
 )
 
-# Crea il router pubblico.
-router = APIRouter(
-    prefix="/api/v1/market",
-    tags=["market"],
+# Crea il router principale aggiunto da app.py.
+router = APIRouter()
+
+# Registra il router read-only delle operazioni paper.
+router.include_router(
+    trades_router
 )
 
-# Protegge l'accesso alla connessione MT5 condivisa.
+# Protegge la connessione MT5 condivisa.
 _service_lock = Lock()
 
-# Memorizza il servizio riutilizzato tra richieste successive.
+# Memorizza il servizio tick tra richieste successive.
 _tick_service: MetaTrader5TickService | None = None
 
 
@@ -50,10 +53,14 @@ def _import_metatrader5_module() -> MetaTrader5TickModule:
 
     try:
         # Carica dinamicamente il modulo ufficiale.
-        imported_module = importlib.import_module("MetaTrader5")
+        imported_module = importlib.import_module(
+            "MetaTrader5"
+        )
 
     except ModuleNotFoundError as error:
-        raise MetaTrader5TickServiceError("Pacchetto MetaTrader5 non installato.") from error
+        raise MetaTrader5TickServiceError(
+            "Pacchetto MetaTrader5 non installato."
+        ) from error
 
     # Restituisce il modulo con il protocollo previsto.
     return cast(
@@ -66,7 +73,7 @@ def _create_tick_service() -> MetaTrader5TickService:
     """Crea il servizio tick dalla configurazione locale."""
 
     try:
-        # Carica il file .env del computer locale.
+        # Carica il file .env locale.
         settings = load_application_settings_from_env(
             environment_file=".env",
             require_file=True,
@@ -78,19 +85,23 @@ def _create_tick_service() -> MetaTrader5TickService:
         SettingsError,
     ) as error:
         raise MetaTrader5TickServiceError(
-            f"Configurazione tick non disponibile: {error}"
+            "Configurazione tick non disponibile: "
+            f"{error}"
         ) from error
 
     # Il prezzo live richiede il provider MT5.
     if settings.data_provider != "MT5":
         raise MetaTrader5TickServiceError(
-            "Prezzo live disponibile solamente con DATA_PROVIDER=MT5."
+            "Prezzo live disponibile solamente "
+            "con DATA_PROVIDER=MT5."
         )
 
-    # Crea il servizio con il modulo MT5 ufficiale.
+    # Crea il servizio usando il modulo ufficiale.
     return MetaTrader5TickService(
         settings=settings,
-        mt5_module=(_import_metatrader5_module()),
+        mt5_module=(
+            _import_metatrader5_module()
+        ),
     )
 
 
@@ -99,10 +110,12 @@ def get_tick_service() -> MetaTrader5TickService:
 
     global _tick_service
 
-    # Protegge la creazione del servizio condiviso.
+    # Protegge la creazione del servizio.
     with _service_lock:
         if _tick_service is None:
-            _tick_service = _create_tick_service()
+            _tick_service = (
+                _create_tick_service()
+            )
 
         return _tick_service
 
@@ -120,7 +133,10 @@ def reset_tick_service() -> None:
         _tick_service = None
 
 
-@router.get("/tick")
+@router.get(
+    "/api/v1/market/tick",
+    tags=["market"],
+)
 def get_live_tick(
     symbol: str = Query(
         default="EURUSD",
@@ -134,9 +150,11 @@ def get_live_tick(
         # Recupera o crea il servizio condiviso.
         service = get_tick_service()
 
-        # Serializza solamente la lettura effettiva da MT5.
+        # Serializza la lettura effettiva da MT5.
         with _service_lock:
-            tick = service.get_tick(symbol)
+            tick = service.get_tick(
+                symbol
+            )
 
         # Converte il risultato in JSON.
         return tick.to_dict()
