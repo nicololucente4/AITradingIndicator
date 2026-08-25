@@ -229,7 +229,7 @@ function ProbabilityRow({
       signal
     );
 
-  // Limita il valore all'intervallo da zero a uno.
+  // Limita la probabilità all'intervallo da zero a uno.
   const normalizedProbability =
     probability === null
       ? 0
