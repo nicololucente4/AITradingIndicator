@@ -34,6 +34,11 @@ from src.api.tick_router import (
     router as tick_router,
 )
 
+# Importa il router dello storico paper trade.
+from src.api.trades_router import (
+    router as trades_router,
+)
+
 # Importa il provider CSV validato.
 from src.data.file_provider import FileDataProvider
 
@@ -555,6 +560,7 @@ def create_app(
         redoc_url="/redoc",
     )
 
+    # Abilita il collegamento dal frontend Next.js.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -569,6 +575,12 @@ def create_app(
             "*",
         ],
     )
+
+    # Registra l'endpoint del prezzo live MT5.
+    app.include_router(tick_router)
+
+    # Registra lo storico persistente delle operazioni paper.
+    app.include_router(trades_router)
 
     # Espone il prezzo tick live MT5.
     app.include_router(tick_router)
