@@ -1,9 +1,9 @@
 """Processore ML riutilizzabile per il Live Paper Engine."""
 
-# Importa os per leggere le soglie configurabili.
+# Importa os per leggere le soglie configurabili dall'ambiente.
 import os
 
-# Importa dataclass e field per la configurazione immutabile.
+# Importa dataclass e field per rappresentare la configurazione immutabile.
 from dataclasses import dataclass, field
 
 # Importa Path per gestire il Model Registry.
@@ -36,22 +36,22 @@ def _read_environment_threshold(
     variable_name: str,
     default: float,
 ) -> float:
-    """Legge una soglia numerica dall'ambiente."""
+    """Legge e valida una soglia probabilistica dall'ambiente."""
 
-    # Recupera il valore oppure usa quello predefinito.
+    # Recupera il valore della variabile oppure usa il valore predefinito.
     raw_value = os.environ.get(
         variable_name,
         str(default),
     ).strip()
 
     try:
-        # Converte il valore in numero decimale.
+        # Converte il testo in un numero decimale.
         selected_value = float(raw_value)
 
     except ValueError as error:
         raise LiveMLProcessorError(f"{variable_name} deve essere un numero decimale.") from error
 
-    # Le probabilità devono essere comprese tra zero e uno.
+    # Le soglie probabilistiche devono essere comprese tra zero e uno.
     if not 0.0 <= selected_value <= 1.0:
         raise LiveMLProcessorError(f"{variable_name} deve essere compresa tra 0 e 1.")
 
@@ -59,7 +59,7 @@ def _read_environment_threshold(
 
 
 def _default_minimum_confidence() -> float:
-    """Restituisce la confidenza minima configurata."""
+    """Legge la confidenza minima configurata."""
 
     return _read_environment_threshold(
         "MINIMUM_PREDICTION_CONFIDENCE",
@@ -68,7 +68,7 @@ def _default_minimum_confidence() -> float:
 
 
 def _default_minimum_probability_margin() -> float:
-    """Restituisce il margine minimo configurato."""
+    """Legge il margine probabilistico minimo configurato."""
 
     return _read_environment_threshold(
         "MINIMUM_PROBABILITY_MARGIN",
@@ -113,7 +113,7 @@ class LiveMLProcessorConfig:
     # Confidenza minima richiesta.
     minimum_confidence: float = field(default_factory=(_default_minimum_confidence))
 
-    # Margine minimo tra prima e seconda probabilità.
+    # Margine minimo tra la prima e la seconda probabilità.
     minimum_probability_margin: float = field(default_factory=(_default_minimum_probability_margin))
 
     # Segnale usato quando il filtro rifiuta la previsione.
@@ -143,40 +143,42 @@ def validate_live_ml_processor_config(
 ) -> None:
     """Verifica la configurazione del processore Live ML."""
 
-    # Il percorso del registry deve essere valorizzato.
+    # Il percorso del Model Registry deve essere valorizzato.
     if not str(config.registry_path).strip():
         raise LiveMLProcessorError("Il percorso del Model Registry non può essere vuoto.")
 
-    # La versione deve essere valorizzata.
+    # La versione del modello deve essere valorizzata.
     if not config.model_version.strip():
         raise LiveMLProcessorError("La versione del modello non può essere vuota.")
 
-    # Il modello corrente opera su M15.
+    # Il modello corrente è stato sviluppato sul timeframe M15.
     if config.timeframe_minutes != 15:
         raise LiveMLProcessorError("Il modello corrente richiede il timeframe M15.")
 
-    # Deve essere consentito almeno uno stato.
+    # Deve essere consentito almeno uno stato del modello.
     if not config.allowed_model_statuses:
         raise LiveMLProcessorError("Deve essere ammesso almeno uno stato del modello.")
 
-    # Valida gli stati ammessi.
+    # Definisce gli stati supportati.
     supported_statuses = {
         "CANDIDATE",
         "APPROVED",
     }
 
+    # Individua eventuali stati non supportati.
     invalid_statuses = set(config.allowed_model_statuses).difference(supported_statuses)
 
+    # Rifiuta gli stati sconosciuti.
     if invalid_statuses:
         invalid_text = ", ".join(sorted(invalid_statuses))
 
         raise LiveMLProcessorError(f"Stati modello non supportati: {invalid_text}.")
 
-    # Valida la confidenza minima.
+    # La confidenza minima deve essere compresa tra zero e uno.
     if not (0.0 <= config.minimum_confidence <= 1.0):
         raise LiveMLProcessorError("La confidenza minima deve essere compresa tra 0 e 1.")
 
-    # Valida il margine minimo.
+    # Il margine minimo deve essere compreso tra zero e uno.
     if not (0.0 <= config.minimum_probability_margin <= 1.0):
         raise LiveMLProcessorError("Il margine minimo deve essere compreso tra 0 e 1.")
 
@@ -198,13 +200,13 @@ class RegisteredLiveMLProcessor:
     ) -> None:
         """Inizializza il processore Live ML."""
 
-        # Usa la configurazione predefinita se non specificata.
+        # Usa la configurazione predefinita quando non viene specificata.
         self._config = config or LiveMLProcessorConfig()
 
-        # Valida la configurazione.
+        # Valida la configurazione selezionata.
         validate_live_ml_processor_config(self._config)
 
-        # Costruisce la configurazione delle feature.
+        # Costruisce la configurazione delle feature tecniche.
         self._feature_config = TechnicalFeatureConfig(
             ema_fast_period=(self._config.ema_fast_period),
             ema_slow_period=(self._config.ema_slow_period),
@@ -212,14 +214,14 @@ class RegisteredLiveMLProcessor:
             volatility_period=(self._config.volatility_period),
         )
 
-        # Costruisce il filtro selettivo.
+        # Costruisce la configurazione del filtro selettivo.
         self._confidence_config = ConfidenceFilterConfig(
             minimum_confidence=(self._config.minimum_confidence),
             minimum_probability_margin=(self._config.minimum_probability_margin),
             fallback_signal=(self._config.fallback_signal),
         )
 
-        # Costruisce i livelli teorici.
+        # Costruisce la configurazione dei livelli teorici.
         self._risk_config = RiskLevelConfig(
             stop_atr_multiplier=(self._config.stop_atr_multiplier),
             minimum_stop_percentage=(self._config.minimum_stop_percentage),
@@ -246,13 +248,15 @@ class RegisteredLiveMLProcessor:
     def validate_runtime_files(
         self,
     ) -> None:
-        """Verifica la presenza del registry."""
+        """Verifica la presenza del Model Registry."""
 
+        # Il registry deve essere disponibile.
         if not self._config.registry_path.exists():
             raise LiveMLProcessorError(
                 f"Model Registry non trovato: {self._config.registry_path.resolve()}."
             )
 
+        # Il percorso deve rappresentare un file.
         if not self._config.registry_path.is_file():
             raise LiveMLProcessorError("Il percorso del Model Registry non è un file.")
 
@@ -262,7 +266,7 @@ class RegisteredLiveMLProcessor:
     ) -> pd.DataFrame:
         """Elabora lo storico e restituisce il segnale corrente."""
 
-        # Verifica il tipo dello storico.
+        # Verifica il tipo dello storico ricevuto.
         if not isinstance(
             dataframe,
             pd.DataFrame,
@@ -276,7 +280,7 @@ class RegisteredLiveMLProcessor:
         # Verifica il Model Registry.
         self.validate_runtime_files()
 
-        # Esegue il processore usato dal Replay ML.
+        # Esegue il processore già utilizzato dal Replay ML.
         result = process_ml_replay_snapshot(
             dataframe=dataframe,
             registry_path=(self._config.registry_path),
@@ -286,14 +290,16 @@ class RegisteredLiveMLProcessor:
             risk_config=(self._risk_config),
         )
 
-        # Identifica il contesto Live Paper.
+        # Crea una copia indipendente del risultato.
         result = result.copy(deep=True)
 
+        # Identifica il contesto Live Paper.
         result["operating_mode"] = "LIVE_PAPER"
 
+        # Conferma che l'esecuzione è esclusivamente simulata.
         result["execution_mode"] = "PAPER_ONLY"
 
-        # Restituisce una sola riga.
+        # Restituisce una sola riga relativa alla candela corrente.
         return result.reset_index(drop=True)
 
     def __call__(
@@ -307,7 +313,7 @@ class RegisteredLiveMLProcessor:
     def safe_summary(
         self,
     ) -> dict[str, object]:
-        """Restituisce un riepilogo non sensibile."""
+        """Restituisce un riepilogo operativo non sensibile."""
 
         return {
             "processor": ("REGISTERED_LIVE_ML_PROCESSOR"),
