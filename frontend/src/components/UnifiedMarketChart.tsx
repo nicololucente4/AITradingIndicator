@@ -1270,9 +1270,38 @@ export default function UnifiedMarketChart({
           onClick={
             goToLatestCandles
           }
-          className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:border-blue-500 hover:text-blue-300"
+          title="Torna alle candele più recenti"
+          aria-label="Torna alle candele più recenti"
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 text-slate-400 transition-colors hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-300"
         >
-          Ultime candele
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+            className="h-4 w-4"
+          >
+            <path
+              d="M5 7v10"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+
+            <path
+              d="M9 12h9"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+
+            <path
+              d="m15 9 3 3-3 3"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </button>
 
         <button
