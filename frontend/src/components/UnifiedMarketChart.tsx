@@ -27,17 +27,18 @@ import {
 import type {
   AvailableTimeframe,
   Candle,
-  SignalRecord,
+  PaperTradeRecord,
 } from "@/src/types/market";
 
 // Proprietà ricevute dal componente.
 type UnifiedMarketChartProps = {
   candles: Candle[];
-  signals: SignalRecord[];
+  trades: PaperTradeRecord[];
+  symbol: string;
   timeframe: AvailableTimeframe;
 };
 
-// Valori mostrati nel pannello OHLCV.
+// Valori visualizzati nel pannello OHLCV.
 type HoveredMarketData = {
   timestamp: string;
   open: number;
@@ -53,7 +54,16 @@ type SavedLogicalRange = {
   to: number;
 };
 
-// Numero iniziale di candele visibili per timeframe.
+// Memorizza zoom e posizione separatamente
+// per ogni combinazione strumento e timeframe.
+const VISIBLE_RANGE_BY_MARKET =
+  new Map<
+    string,
+    SavedLogicalRange
+  >();
+
+// Numero di barre usato solamente
+// alla prima apertura di una combinazione.
 const INITIAL_VISIBLE_BARS: Record<
   AvailableTimeframe,
   number
@@ -74,25 +84,21 @@ const INITIAL_VISIBLE_BARS: Record<
   W1: 35,
 };
 
-// Conserva zoom e posizione durante i refresh Next.js.
-// Ogni timeframe mantiene una vista indipendente.
-const VISIBLE_RANGE_BY_TIMEFRAME = new Map<
-  AvailableTimeframe,
-  SavedLogicalRange
->();
-
 /**
  * Converte un timestamp ISO in secondi Unix.
  */
 function convertToUtcTimestamp(
   timestamp: string
 ): UTCTimestamp {
-  const milliseconds = Date.parse(
-    timestamp
-  );
+  const milliseconds =
+    Date.parse(
+      timestamp
+    );
 
   if (
-    Number.isNaN(milliseconds)
+    Number.isNaN(
+      milliseconds
+    )
   ) {
     throw new Error(
       `Timestamp non valido: ${timestamp}`
@@ -130,10 +136,11 @@ function orderCandles(
 function prepareCandlestickData(
   candles: Candle[]
 ): CandlestickData<UTCTimestamp>[] {
-  const uniqueCandles = new Map<
-    number,
-    CandlestickData<UTCTimestamp>
-  >();
+  const uniqueCandles =
+    new Map<
+      number,
+      CandlestickData<UTCTimestamp>
+    >();
 
   for (
     const candle of candles
@@ -182,10 +189,11 @@ function prepareCandlestickData(
 function prepareVolumeData(
   candles: Candle[]
 ): HistogramData<UTCTimestamp>[] {
-  const uniqueVolumes = new Map<
-    number,
-    HistogramData<UTCTimestamp>
-  >();
+  const uniqueVolumes =
+    new Map<
+      number,
+      HistogramData<UTCTimestamp>
+    >();
 
   for (
     const candle of candles
@@ -246,15 +254,20 @@ function calculateEma(
   }
 
   const orderedCandles =
-    orderCandles(candles);
+    orderCandles(
+      candles
+    );
 
   const multiplier =
-    2 / (period + 1);
+    2 / (
+      period + 1
+    );
 
   let currentEma =
     orderedCandles[0].close;
 
-  const emaData: LineData<UTCTimestamp>[] =
+  const emaData:
+    LineData<UTCTimestamp>[] =
     [];
 
   for (
@@ -265,14 +278,17 @@ function calculateEma(
       candle.close *
         multiplier +
       currentEma *
-        (1 - multiplier);
+        (
+          1 - multiplier
+        );
 
     emaData.push({
       time:
         convertToUtcTimestamp(
           candle.timestamp
         ),
-      value: currentEma,
+      value:
+        currentEma,
     });
   }
 
@@ -280,67 +296,94 @@ function calculateEma(
 }
 
 /**
- * Converte i segnali in marker.
+ * Restituisce una versione compatta del Trade ID.
  */
-function prepareSignalMarkers(
-  signals: SignalRecord[]
+function getCompactTradeId(
+  tradeId: string
+): string {
+  const tradeIdParts =
+    tradeId.split(
+      "-"
+    );
+
+  return (
+    tradeIdParts.at(
+      -1
+    ) ??
+    tradeId
+  );
+}
+
+/**
+ * Converte aperture e chiusure paper
+ * in marker visualizzati sul grafico.
+ */
+function prepareTradeMarkers(
+  trades: PaperTradeRecord[]
 ): SeriesMarker<UTCTimestamp>[] {
-  const markers: SeriesMarker<UTCTimestamp>[] =
+  const markers:
+    SeriesMarker<UTCTimestamp>[] =
     [];
 
   for (
-    const signal of signals
+    const trade of trades
   ) {
-    const time =
-      convertToUtcTimestamp(
-        signal.timestamp
+    const compactTradeId =
+      getCompactTradeId(
+        trade.trade_id
       );
 
-    const confidence =
-      signal.prediction_confidence ===
-      null
-        ? ""
-        : `${Math.round(
-            signal.prediction_confidence *
-              100
-          )}%`;
+    // Mostra l'apertura del paper trade.
+    markers.push({
+      time:
+        convertToUtcTimestamp(
+          trade.opened_at_utc
+        ),
+      position:
+        trade.direction ===
+        "LONG"
+          ? "belowBar"
+          : "aboveBar",
+      color:
+        trade.direction ===
+        "LONG"
+          ? "#22c55e"
+          : "#ef4444",
+      shape:
+        trade.direction ===
+        "LONG"
+          ? "arrowUp"
+          : "arrowDown",
+      text:
+        `OPEN ${trade.direction} ${compactTradeId}`,
+    });
 
+    // Mostra la chiusura solamente
+    // quando il trade è realmente concluso.
     if (
-      signal.signal === "LONG"
+      trade.status ===
+        "CLOSED" &&
+      trade.closed_at_utc !==
+        null
     ) {
       markers.push({
-        time,
-        position: "belowBar",
-        color: "#22c55e",
-        shape: "arrowUp",
+        time:
+          convertToUtcTimestamp(
+            trade.closed_at_utc
+          ),
+        position:
+          trade.direction ===
+          "LONG"
+            ? "aboveBar"
+            : "belowBar",
+        color:
+          "#38bdf8",
+        shape:
+          "circle",
         text:
-          confidence === ""
-            ? "L"
-            : `L ${confidence}`,
+          `CLOSE ${compactTradeId}`,
       });
-
-      continue;
     }
-
-    if (
-      signal.signal === "SHORT"
-    ) {
-      markers.push({
-        time,
-        position: "aboveBar",
-        color: "#ef4444",
-        shape: "arrowDown",
-        text:
-          confidence === ""
-            ? "S"
-            : `S ${confidence}`,
-      });
-
-      continue;
-    }
-
-    // NO_TRADE non viene mostrato sul grafico
-    // per evitare di sovraccaricare le candele.
   }
 
   markers.sort(
@@ -360,68 +403,59 @@ function prepareSignalMarkers(
 }
 
 /**
- * Recupera l'ultimo segnale direzionale completo.
+ * Recupera l'ultima operazione ancora aperta.
  */
-function getLatestDirectionalSignal(
-  signals: SignalRecord[]
-): SignalRecord | null {
-  const directionalSignals =
-    signals
+function getLatestOpenTrade(
+  trades: PaperTradeRecord[]
+): PaperTradeRecord | null {
+  const openTrades =
+    trades
       .filter(
-        (signal) =>
-          (
-            signal.signal ===
-              "LONG" ||
-            signal.signal ===
-              "SHORT"
-          ) &&
-          typeof signal.entry_price ===
-            "number" &&
-          typeof signal.stop_loss ===
-            "number" &&
-          typeof signal.take_profit_1 ===
-            "number"
+        (trade) =>
+          trade.status ===
+          "OPEN"
       )
       .sort(
         (
-          firstSignal,
-          secondSignal
+          firstTrade,
+          secondTrade
         ) =>
           Date.parse(
-            secondSignal.timestamp
+            secondTrade.opened_at_utc
           ) -
           Date.parse(
-            firstSignal.timestamp
+            firstTrade.opened_at_utc
           )
       );
 
-  if (
-    directionalSignals.length ===
-    0
-  ) {
-    return null;
-  }
-
-  return directionalSignals[0];
+  return (
+    openTrades[0] ??
+    null
+  );
 }
 
 /**
- * Converte il tempo Lightweight Charts in secondi Unix.
+ * Converte il tempo Lightweight Charts
+ * in secondi Unix.
  */
 function convertChartTimeToNumber(
   time: Time
 ): number | null {
   if (
-    typeof time === "number"
+    typeof time ===
+    "number"
   ) {
     return time;
   }
 
   if (
-    typeof time === "string"
+    typeof time ===
+    "string"
   ) {
     const parsedMilliseconds =
-      Date.parse(time);
+      Date.parse(
+        time
+      );
 
     if (
       Number.isNaN(
@@ -450,12 +484,65 @@ function convertChartTimeToNumber(
 }
 
 /**
- * Formatta un prezzo con cinque decimali.
+ * Restituisce il numero di decimali appropriato.
+ */
+function getPricePrecision(
+  symbol: string
+): number {
+  if (
+    symbol.includes(
+      "JPY"
+    )
+  ) {
+    return 3;
+  }
+
+  if (
+    symbol ===
+    "XAUUSD"
+  ) {
+    return 2;
+  }
+
+  return 5;
+}
+
+/**
+ * Restituisce il movimento minimo del prezzo.
+ */
+function getMinimumPriceMovement(
+  symbol: string
+): number {
+  if (
+    symbol.includes(
+      "JPY"
+    )
+  ) {
+    return 0.001;
+  }
+
+  if (
+    symbol ===
+    "XAUUSD"
+  ) {
+    return 0.01;
+  }
+
+  return 0.00001;
+}
+
+/**
+ * Formatta un prezzo.
  */
 function formatPrice(
-  value: number
+  value: number,
+  symbol: string
 ): string {
-  return value.toFixed(5);
+  return value.toFixed(
+    getPricePrecision(
+      symbol
+    )
+  );
 }
 
 /**
@@ -469,71 +556,99 @@ function formatVolume(
     {
       maximumFractionDigits: 0,
     }
-  ).format(value);
+  ).format(
+    value
+  );
 }
 
 /**
- * Converte una candela nei dati del pannello OHLCV.
+ * Converte una candela nei dati
+ * del pannello OHLCV.
  */
 function candleToHoveredData(
   candle: Candle
 ): HoveredMarketData {
   return {
-    timestamp: candle.timestamp,
-    open: candle.open,
-    high: candle.high,
-    low: candle.low,
-    close: candle.close,
-    volume: candle.volume,
+    timestamp:
+      candle.timestamp,
+    open:
+      candle.open,
+    high:
+      candle.high,
+    low:
+      candle.low,
+    close:
+      candle.close,
+    volume:
+      candle.volume,
   };
 }
 
 /**
- * Mostra candlestick e volumi in pannelli sincronizzati.
+ * Mostra candlestick, indicatori,
+ * paper trade e volumi.
  */
 export default function UnifiedMarketChart({
   candles,
-  signals,
+  trades,
+  symbol,
   timeframe,
 }: UnifiedMarketChartProps) {
   // Contenitore HTML del grafico.
   const containerRef =
-    useRef<HTMLDivElement | null>(
+    useRef<
+      HTMLDivElement | null
+    >(
       null
     );
 
-  // Istanza correntemente attiva del grafico.
+  // Istanza attiva del grafico.
   const chartRef =
-    useRef<IChartApi | null>(
+    useRef<
+      IChartApi | null
+    >(
       null
     );
+
+  // Identifica la vista in modo univoco.
+  const viewKey =
+    `${symbol}:${timeframe}`;
 
   // Controlla la visualizzazione delle EMA.
   const [
     showEma,
     setShowEma,
-  ] = useState(true);
+  ] = useState(
+    true
+  );
 
-  // Controlla Entry, SL e TP.
+  // Controlla Entry, Stop Loss e Take Profit.
   const [
     showLevels,
     setShowLevels,
-  ] = useState(true);
+  ] = useState(
+    true
+  );
 
   // Controlla il pannello volume.
   const [
     showVolume,
     setShowVolume,
-  ] = useState(true);
+  ] = useState(
+    true
+  );
 
   // Inizializza il pannello OHLCV.
   const [
     hoveredData,
     setHoveredData,
-  ] = useState<HoveredMarketData | null>(
+  ] = useState<
+    HoveredMarketData | null
+  >(
     () => {
       if (
-        candles.length === 0
+        candles.length ===
+        0
       ) {
         return null;
       }
@@ -547,7 +662,7 @@ export default function UnifiedMarketChart({
   );
 
   useEffect(() => {
-    // Il contenitore deve essere disponibile.
+    // Il contenitore deve esistere.
     if (
       containerRef.current ===
       null
@@ -555,18 +670,20 @@ export default function UnifiedMarketChart({
       return;
     }
 
-    // Non crea un grafico senza candele.
+    // Non crea il grafico senza candele.
     if (
-      candles.length === 0
+      candles.length ===
+      0
     ) {
       return;
     }
 
-    // Ordina le candele ricevute.
+    // Ordina e prepara i dati.
     const orderedCandles =
-      orderCandles(candles);
+      orderCandles(
+        candles
+      );
 
-    // Prepara candlestick e volumi.
     const candleData =
       prepareCandlestickData(
         orderedCandles
@@ -578,16 +695,18 @@ export default function UnifiedMarketChart({
       );
 
     if (
-      candleData.length === 0
+      candleData.length ===
+      0
     ) {
       return;
     }
 
     // Indicizza le candele tramite timestamp.
-    const candleLookup = new Map<
-      number,
-      Candle
-    >();
+    const candleLookup =
+      new Map<
+        number,
+        Candle
+      >();
 
     for (
       const candle of
@@ -604,126 +723,149 @@ export default function UnifiedMarketChart({
     }
 
     // Crea il grafico.
-    const chart = createChart(
-      containerRef.current,
-      {
-        autoSize: true,
-
-        layout: {
-          background: {
-            type:
-              ColorType.Solid,
-            color: "#0b1220",
+    const chart =
+      createChart(
+        containerRef.current,
+        {
+          autoSize:
+            true,
+          layout: {
+            background: {
+              type:
+                ColorType.Solid,
+              color:
+                "#0b1220",
+            },
+            textColor:
+              "#94a3b8",
+            fontFamily:
+              "Inter, ui-sans-serif, system-ui, sans-serif",
+            panes: {
+              separatorColor:
+                "#263449",
+              separatorHoverColor:
+                "#3b82f6",
+              enableResize:
+                true,
+            },
           },
-          textColor: "#94a3b8",
-          fontFamily:
-            "Inter, ui-sans-serif, system-ui, sans-serif",
-          panes: {
-            separatorColor:
+          grid: {
+            vertLines: {
+              color:
+                "#162033",
+            },
+            horzLines: {
+              color:
+                "#162033",
+            },
+          },
+          rightPriceScale: {
+            borderColor:
               "#263449",
-            separatorHoverColor:
-              "#3b82f6",
-            enableResize: true,
+            scaleMargins: {
+              top:
+                0.08,
+              bottom:
+                0.08,
+            },
           },
-        },
-
-        grid: {
-          vertLines: {
-            color: "#162033",
+          timeScale: {
+            borderColor:
+              "#263449",
+            timeVisible:
+              true,
+            secondsVisible:
+              false,
+            rightOffset:
+              3,
+            barSpacing:
+              9,
+            minBarSpacing:
+              2,
+            lockVisibleTimeRangeOnResize:
+              true,
+            rightBarStaysOnScroll:
+              true,
           },
-          horzLines: {
-            color: "#162033",
+          crosshair: {
+            vertLine: {
+              color:
+                "#64748b",
+              width:
+                1,
+              style:
+                LineStyle.Dashed,
+              labelBackgroundColor:
+                "#334155",
+            },
+            horzLine: {
+              color:
+                "#64748b",
+              width:
+                1,
+              style:
+                LineStyle.Dashed,
+              labelBackgroundColor:
+                "#334155",
+            },
           },
-        },
-
-        rightPriceScale: {
-          borderColor:
-            "#263449",
-          scaleMargins: {
-            top: 0.08,
-            bottom: 0.08,
+          handleScroll: {
+            mouseWheel:
+              true,
+            pressedMouseMove:
+              true,
+            horzTouchDrag:
+              true,
+            vertTouchDrag:
+              false,
           },
-        },
-
-        timeScale: {
-          borderColor:
-            "#263449",
-          timeVisible: true,
-          secondsVisible: false,
-          rightOffset: 3,
-          barSpacing: 9,
-          minBarSpacing: 2,
-          lockVisibleTimeRangeOnResize:
-            true,
-          rightBarStaysOnScroll:
-            true,
-        },
-
-        crosshair: {
-          vertLine: {
-            color: "#64748b",
-            width: 1,
-            style:
-              LineStyle.Dashed,
-            labelBackgroundColor:
-              "#334155",
+          handleScale: {
+            axisPressedMouseMove:
+              true,
+            mouseWheel:
+              true,
+            pinch:
+              true,
           },
-          horzLine: {
-            color: "#64748b",
-            width: 1,
-            style:
-              LineStyle.Dashed,
-            labelBackgroundColor:
-              "#334155",
-          },
-        },
-
-        handleScroll: {
-          mouseWheel: true,
-          pressedMouseMove:
-            true,
-          horzTouchDrag: true,
-          vertTouchDrag: false,
-        },
-
-        handleScale: {
-          axisPressedMouseMove:
-            true,
-          mouseWheel: true,
-          pinch: true,
-        },
-      }
-    );
+        }
+      );
 
     // Memorizza l'istanza.
-    chartRef.current = chart;
+    chartRef.current =
+      chart;
 
-    // Il pane 0 contiene prezzi ed EMA.
+    // Aggiunge la serie candlestick.
     const candlestickSeries =
       chart.addSeries(
         CandlestickSeries,
         {
-          upColor: "#089981",
+          upColor:
+            "#089981",
           wickUpColor:
             "#089981",
           borderUpColor:
             "#089981",
-
-          downColor: "#f23645",
+          downColor:
+            "#f23645",
           wickDownColor:
             "#f23645",
           borderDownColor:
             "#f23645",
-
           priceLineVisible:
             true,
           lastValueVisible:
             true,
-
           priceFormat: {
-            type: "price",
-            precision: 5,
-            minMove: 0.00001,
+            type:
+              "price",
+            precision:
+              getPricePrecision(
+                symbol
+              ),
+            minMove:
+              getMinimumPriceMovement(
+                symbol
+              ),
           },
         },
         0
@@ -734,27 +876,34 @@ export default function UnifiedMarketChart({
       candleData
     );
 
-    // Aggiunge i marker dei segnali.
+    // Mostra marker solo
+    // per paper trade persistenti.
     if (
-      signals.length > 0
+      trades.length >
+      0
     ) {
       createSeriesMarkers(
         candlestickSeries,
-        prepareSignalMarkers(
-          signals
+        prepareTradeMarkers(
+          trades
         )
       );
     }
 
     // Aggiunge EMA 10 ed EMA 30.
-    if (showEma) {
+    if (
+      showEma
+    ) {
       const emaFastSeries =
         chart.addSeries(
           LineSeries,
           {
-            color: "#2962ff",
-            lineWidth: 2,
-            title: "EMA 10",
+            color:
+              "#2962ff",
+            lineWidth:
+              2,
+            title:
+              "EMA 10",
             priceLineVisible:
               false,
             lastValueVisible:
@@ -774,9 +923,12 @@ export default function UnifiedMarketChart({
         chart.addSeries(
           LineSeries,
           {
-            color: "#ff9800",
-            lineWidth: 2,
-            title: "EMA 30",
+            color:
+              "#ff9800",
+            lineWidth:
+              2,
+            title:
+              "EMA 30",
             priceLineVisible:
               false,
             lastValueVisible:
@@ -793,115 +945,71 @@ export default function UnifiedMarketChart({
       );
     }
 
-    // Aggiunge Entry, Stop Loss e Take Profit.
-    if (showLevels) {
-      const latestSignal =
-        getLatestDirectionalSignal(
-          signals
+    // Mostra i livelli solamente
+    // del trade effettivamente aperto.
+    if (
+      showLevels
+    ) {
+      const latestOpenTrade =
+        getLatestOpenTrade(
+          trades
         );
 
       if (
-        latestSignal !== null
+        latestOpenTrade !==
+        null
       ) {
-        if (
-          typeof latestSignal.entry_price ===
-          "number"
-        ) {
-          candlestickSeries.createPriceLine(
-            {
-              price:
-                latestSignal.entry_price,
-              color: "#e2e8f0",
-              lineWidth: 1,
-              lineStyle:
-                LineStyle.Dashed,
-              axisLabelVisible:
-                true,
-              title: "ENTRY",
-            }
-          );
-        }
+        candlestickSeries.createPriceLine({
+          price:
+            latestOpenTrade.entry_price,
+          color:
+            "#e2e8f0",
+          lineWidth:
+            1,
+          lineStyle:
+            LineStyle.Dashed,
+          axisLabelVisible:
+            true,
+          title:
+            "ENTRY",
+        });
 
-        if (
-          typeof latestSignal.stop_loss ===
-          "number"
-        ) {
-          candlestickSeries.createPriceLine(
-            {
-              price:
-                latestSignal.stop_loss,
-              color: "#f23645",
-              lineWidth: 2,
-              lineStyle:
-                LineStyle.Dashed,
-              axisLabelVisible:
-                true,
-              title: "SL",
-            }
-          );
-        }
+        candlestickSeries.createPriceLine({
+          price:
+            latestOpenTrade.stop_loss,
+          color:
+            "#f23645",
+          lineWidth:
+            2,
+          lineStyle:
+            LineStyle.Dashed,
+          axisLabelVisible:
+            true,
+          title:
+            "SL",
+        });
 
-        if (
-          typeof latestSignal.take_profit_1 ===
-          "number"
-        ) {
-          candlestickSeries.createPriceLine(
-            {
-              price:
-                latestSignal.take_profit_1,
-              color: "#089981",
-              lineWidth: 2,
-              lineStyle:
-                LineStyle.Dashed,
-              axisLabelVisible:
-                true,
-              title: "TP1",
-            }
-          );
-        }
-
-        if (
-          typeof latestSignal.take_profit_2 ===
-          "number"
-        ) {
-          candlestickSeries.createPriceLine(
-            {
-              price:
-                latestSignal.take_profit_2,
-              color: "#14b8a6",
-              lineWidth: 1,
-              lineStyle:
-                LineStyle.Dotted,
-              axisLabelVisible:
-                true,
-              title: "TP2",
-            }
-          );
-        }
-
-        if (
-          typeof latestSignal.take_profit_3 ===
-          "number"
-        ) {
-          candlestickSeries.createPriceLine(
-            {
-              price:
-                latestSignal.take_profit_3,
-              color: "#06b6d4",
-              lineWidth: 1,
-              lineStyle:
-                LineStyle.Dotted,
-              axisLabelVisible:
-                true,
-              title: "TP3",
-            }
-          );
-        }
+        candlestickSeries.createPriceLine({
+          price:
+            latestOpenTrade.take_profit_1,
+          color:
+            "#089981",
+          lineWidth:
+            2,
+          lineStyle:
+            LineStyle.Dashed,
+          axisLabelVisible:
+            true,
+          title:
+            "TP1",
+        });
       }
     }
 
-    // Il pane 1 contiene il volume.
-    if (showVolume) {
+    // Aggiunge il volume nel secondo pannello.
+    if (
+      showVolume
+    ) {
       const volumeSeries =
         chart.addSeries(
           HistogramSeries,
@@ -909,7 +1017,8 @@ export default function UnifiedMarketChart({
             color:
               "rgba(8, 153, 129, 0.65)",
             priceFormat: {
-              type: "volume",
+              type:
+                "volume",
             },
             priceLineVisible:
               false,
@@ -923,14 +1032,15 @@ export default function UnifiedMarketChart({
         volumeData
       );
 
-      // Imposta un'altezza iniziale stabile.
+      // Imposta l'altezza del volume.
       window.requestAnimationFrame(
         () => {
           const panes =
             chart.panes();
 
           if (
-            panes.length > 1
+            panes.length >
+            1
           ) {
             panes[1].setHeight(
               160
@@ -970,7 +1080,8 @@ export default function UnifiedMarketChart({
         );
 
       if (
-        timestamp === null
+        timestamp ===
+        null
       ) {
         return;
       }
@@ -1000,8 +1111,8 @@ export default function UnifiedMarketChart({
     );
 
     /**
-     * Memorizza automaticamente
-     * zoom e posizione temporale.
+     * Memorizza ogni variazione manuale
+     * dello zoom e della posizione.
      */
     const handleVisibleRangeChange = (
       logicalRange:
@@ -1009,39 +1120,43 @@ export default function UnifiedMarketChart({
         | null
     ): void => {
       if (
-        logicalRange === null
+        logicalRange ===
+        null
       ) {
         return;
       }
 
-      VISIBLE_RANGE_BY_TIMEFRAME.set(
-        timeframe,
+      VISIBLE_RANGE_BY_MARKET.set(
+        viewKey,
         {
           from:
             logicalRange.from,
-          to: logicalRange.to,
+          to:
+            logicalRange.to,
         }
       );
     };
 
-    // Recupera l'eventuale vista precedente.
+    // Recupera la vista salvata
+    // per lo specifico asset e timeframe.
     const savedVisibleRange =
-      VISIBLE_RANGE_BY_TIMEFRAME.get(
-        timeframe
+      VISIBLE_RANGE_BY_MARKET.get(
+        viewKey
       );
 
     if (
       savedVisibleRange !==
       undefined
     ) {
-      // Ripristina zoom e posizione.
+      // Ripristina esattamente la precedente vista.
       chart
         .timeScale()
         .setVisibleLogicalRange(
           savedVisibleRange
         );
     } else {
-      // Imposta la vista iniziale solo al primo caricamento.
+      // Imposta la vista iniziale solamente
+      // la prima volta che la combinazione viene aperta.
       const requestedBars =
         INITIAL_VISIBLE_BARS[
           timeframe
@@ -1053,30 +1168,41 @@ export default function UnifiedMarketChart({
           candleData.length
         );
 
-      chart
-        .timeScale()
-        .setVisibleLogicalRange({
-          from: Math.max(
-            0,
-            candleData.length -
-              visibleBars
-          ),
+      const initialRange:
+        SavedLogicalRange = {
+          from:
+            Math.max(
+              0,
+              candleData.length -
+                visibleBars
+            ),
           to:
             candleData.length +
             3,
-        });
+        };
+
+      VISIBLE_RANGE_BY_MARKET.set(
+        viewKey,
+        initialRange
+      );
+
+      chart
+        .timeScale()
+        .setVisibleLogicalRange(
+          initialRange
+        );
     }
 
-    // Registra le variazioni manuali della vista.
+    // Registra le successive variazioni manuali.
     chart
       .timeScale()
       .subscribeVisibleLogicalRangeChange(
         handleVisibleRangeChange
       );
 
-    // Cleanup prima della ricreazione del grafico.
+    // Cleanup prima della ricreazione.
     return () => {
-      // Salva la vista immediatamente prima della rimozione.
+      // Salva sempre la vista corrente.
       const currentVisibleRange =
         chart
           .timeScale()
@@ -1086,8 +1212,8 @@ export default function UnifiedMarketChart({
         currentVisibleRange !==
         null
       ) {
-        VISIBLE_RANGE_BY_TIMEFRAME.set(
-          timeframe,
+        VISIBLE_RANGE_BY_MARKET.set(
+          viewKey,
           {
             from:
               currentVisibleRange.from,
@@ -1107,102 +1233,62 @@ export default function UnifiedMarketChart({
         handleCrosshairMove
       );
 
-      chartRef.current = null;
+      chartRef.current =
+        null;
 
       chart.remove();
     };
   }, [
     candles,
-    signals,
+    trades,
+    symbol,
     timeframe,
+    viewKey,
     showEma,
     showLevels,
     showVolume,
   ]);
 
   /**
-   * Mostra tutte le candele disponibili.
+   * Adatta il grafico solamente
+   * tramite comando manuale esplicito.
    */
   function fitChart(): void {
     const chart =
       chartRef.current;
 
     if (
-      chart === null
+      chart ===
+      null
     ) {
       return;
     }
 
+    // Questa è l'unica chiamata consentita a fitContent.
     chart
       .timeScale()
       .fitContent();
 
-    // Salva la nuova vista generata da fitContent.
+    // Memorizza la vista scelta manualmente.
     const visibleRange =
       chart
         .timeScale()
         .getVisibleLogicalRange();
 
     if (
-      visibleRange !== null
+      visibleRange !==
+      null
     ) {
-      VISIBLE_RANGE_BY_TIMEFRAME.set(
-        timeframe,
+      VISIBLE_RANGE_BY_MARKET.set(
+        viewKey,
         {
           from:
             visibleRange.from,
-          to: visibleRange.to,
+          to:
+            visibleRange.to,
         }
       );
     }
-  }
-
-  /**
-   * Torna alle ultime candele.
-   */
-  function goToLatestCandles(): void {
-    const chart =
-      chartRef.current;
-
-    if (
-      chart === null
-    ) {
-      return;
-    }
-
-    const requestedBars =
-      INITIAL_VISIBLE_BARS[
-        timeframe
-      ];
-
-    const visibleBars =
-      Math.min(
-        requestedBars,
-        candles.length
-      );
-
-    const latestRange: SavedLogicalRange =
-      {
-        from: Math.max(
-          0,
-          candles.length -
-            visibleBars
-        ),
-        to:
-          candles.length + 3,
-      };
-
-    // Memorizza esplicitamente la vista.
-    VISIBLE_RANGE_BY_TIMEFRAME.set(
-      timeframe,
-      latestRange
-    );
-
-    chart
-      .timeScale()
-      .setVisibleLogicalRange(
-        latestRange
-      );
   }
 
   return (
@@ -1243,7 +1329,7 @@ export default function UnifiedMarketChart({
               : "rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400"
           }
         >
-          Entry / SL / TP
+          Trade Entry / SL / TP
         </button>
 
         <button
@@ -1268,45 +1354,8 @@ export default function UnifiedMarketChart({
         <button
           type="button"
           onClick={
-            goToLatestCandles
+            fitChart
           }
-          title="Torna alle candele più recenti"
-          aria-label="Torna alle candele più recenti"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 text-slate-400 transition-colors hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-300"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-            className="h-4 w-4"
-          >
-            <path
-              d="M5 7v10"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-
-            <path
-              d="M9 12h9"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-
-            <path
-              d="m15 9 3 3-3 3"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-
-        <button
-          type="button"
-          onClick={fitChart}
           className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:border-slate-500 hover:text-white"
         >
           Adatta grafico
@@ -1321,8 +1370,10 @@ export default function UnifiedMarketChart({
             ).toLocaleString(
               "it-IT",
               {
-                timeZone: "UTC",
-                hour12: false,
+                timeZone:
+                  "UTC",
+                hour12:
+                  false,
               }
             )}
             {" UTC"}
@@ -1335,7 +1386,8 @@ export default function UnifiedMarketChart({
 
             <span className="ml-1 text-slate-300">
               {formatPrice(
-                hoveredData.open
+                hoveredData.open,
+                symbol
               )}
             </span>
           </span>
@@ -1347,7 +1399,8 @@ export default function UnifiedMarketChart({
 
             <span className="ml-1 text-[#089981]">
               {formatPrice(
-                hoveredData.high
+                hoveredData.high,
+                symbol
               )}
             </span>
           </span>
@@ -1359,7 +1412,8 @@ export default function UnifiedMarketChart({
 
             <span className="ml-1 text-[#f23645]">
               {formatPrice(
-                hoveredData.low
+                hoveredData.low,
+                symbol
               )}
             </span>
           </span>
@@ -1371,7 +1425,8 @@ export default function UnifiedMarketChart({
 
             <span className="ml-1 text-slate-300">
               {formatPrice(
-                hoveredData.close
+                hoveredData.close,
+                symbol
               )}
             </span>
           </span>
@@ -1391,7 +1446,9 @@ export default function UnifiedMarketChart({
       )}
 
       <div
-        ref={containerRef}
+        ref={
+          containerRef
+        }
         className="h-[760px] w-full overflow-hidden rounded-lg bg-[#0b1220]"
       />
     </div>

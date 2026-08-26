@@ -4,6 +4,8 @@
   HealthResponse,
   LiveMarketTick,
   OutcomesResponse,
+  PaperTradesResponse,
+  PaperTradeStatus,
   SignalsResponse,
   StatisticsResponse,
   SymbolsResponse,
@@ -22,6 +24,7 @@ export const API_BASE_URL =
 async function fetchFromApi<T>(
   endpoint: string
 ): Promise<T> {
+  // Esegue la richiesta senza utilizzare la cache.
   const response = await fetch(
     `${API_BASE_URL}${endpoint}`,
     {
@@ -29,17 +32,23 @@ async function fetchFromApi<T>(
     }
   );
 
-  if (!response.ok) {
+  // Interrompe l'elaborazione in caso di errore HTTP.
+  if (
+    !response.ok
+  ) {
     throw new Error(
       `FastAPI request failed: ${endpoint}, status ${response.status}`
     );
   }
 
-  return (await response.json()) as T;
+  // Converte la risposta JSON nel tipo richiesto.
+  return (
+    await response.json()
+  ) as T;
 }
 
 /**
- * Recupera lo stato di salute.
+ * Recupera lo stato di salute del backend.
  */
 export function getHealth():
   Promise<HealthResponse> {
@@ -49,7 +58,7 @@ export function getHealth():
 }
 
 /**
- * Recupera lo stato sintetico.
+ * Recupera lo stato sintetico del sistema.
  */
 export function getSystemStatus():
   Promise<SystemStatusResponse> {
@@ -69,11 +78,12 @@ export function getSymbols():
 }
 
 /**
- * Recupera i timeframe dello strumento.
+ * Recupera i timeframe disponibili per lo strumento.
  */
 export function getTimeframes(
   symbol: string
 ): Promise<TimeframesResponse> {
+  // Prepara i parametri URL.
   const searchParameters =
     new URLSearchParams({
       symbol,
@@ -85,13 +95,14 @@ export function getTimeframes(
 }
 
 /**
- * Recupera le candele richieste.
+ * Recupera le candele dello strumento e del timeframe.
  */
 export function getCandles(
   symbol: string,
   timeframe: AvailableTimeframe,
   limit = 500
 ): Promise<CandlesResponse> {
+  // Prepara i parametri URL.
   const searchParameters =
     new URLSearchParams({
       symbol,
@@ -110,6 +121,7 @@ export function getCandles(
 export function getLiveTick(
   symbol: string
 ): Promise<LiveMarketTick> {
+  // Prepara il simbolo richiesto.
   const searchParameters =
     new URLSearchParams({
       symbol,
@@ -121,24 +133,76 @@ export function getLiveTick(
 }
 
 /**
- * Recupera gli ultimi segnali.
+ * Recupera gli ultimi segnali diagnostici.
  */
 export function getSignals(
   limit = 200
 ): Promise<SignalsResponse> {
+  // Prepara il limite richiesto.
+  const searchParameters =
+    new URLSearchParams({
+      limit: String(limit),
+    });
+
   return fetchFromApi<SignalsResponse>(
-    `/api/v1/signals?limit=${limit}`
+    `/api/v1/signals?${searchParameters.toString()}`
   );
 }
 
 /**
- * Recupera gli ultimi esiti.
+ * Recupera gli esiti conclusivi dei segnali.
  */
 export function getOutcomes(
   limit = 200
 ): Promise<OutcomesResponse> {
+  // Prepara il limite richiesto.
+  const searchParameters =
+    new URLSearchParams({
+      limit: String(limit),
+    });
+
   return fetchFromApi<OutcomesResponse>(
-    `/api/v1/outcomes?limit=${limit}`
+    `/api/v1/outcomes?${searchParameters.toString()}`
+  );
+}
+
+/**
+ * Recupera le operazioni paper persistenti.
+ */
+export function getPaperTrades(
+  symbol?: string,
+  status?: PaperTradeStatus,
+  limit = 200
+): Promise<PaperTradesResponse> {
+  // Prepara il limite obbligatorio.
+  const searchParameters =
+    new URLSearchParams({
+      limit: String(limit),
+    });
+
+  // Aggiunge il simbolo solamente quando valorizzato.
+  if (
+    symbol !== undefined &&
+    symbol.trim() !== ""
+  ) {
+    searchParameters.set(
+      "symbol",
+      symbol.trim().toUpperCase()
+    );
+  }
+
+  // Aggiunge il filtro di stato quando richiesto.
+  if (
+    status !== undefined
+  ) {
+    searchParameters.set(
+      "status",
+      status
+    );
+  }
+
+  return fetchFromApi<PaperTradesResponse>(
+    `/api/v1/trades?${searchParameters.toString()}`
   );
 }
 

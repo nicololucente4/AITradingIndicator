@@ -224,3 +224,50 @@ export type StatisticsResponse = {
   data_available: boolean;
   statistics: LivePaperStatistics | null;
 };
+
+// Stati supportati dalle operazioni paper.
+export type PaperTradeStatus =
+  | "OPEN"
+  | "CLOSED";
+
+// Rappresenta un'operazione simulata persistente.
+export type PaperTradeRecord = {
+  trade_id: string;
+  signal_id: string;
+  symbol: string;
+  timeframe: AvailableTimeframe;
+  direction: "LONG" | "SHORT";
+  status: PaperTradeStatus;
+  opened_at_utc: string;
+  entry_price: number;
+  stop_loss: number;
+  take_profit_1: number;
+  prediction_confidence: number | null;
+  model_version: string | null;
+  closed_at_utc: string | null;
+  exit_price: number | null;
+  exit_reason: string | null;
+  holding_bars: number | null;
+  gross_return_percentage: number | null;
+  result_r: number | null;
+  created_at_utc: string;
+  updated_at_utc: string;
+};
+
+// Riepilogo delle operazioni paper.
+export type PaperTradesSummary = {
+  total: number;
+  open: number;
+  closed: number;
+};
+
+// Risposta dell'endpoint Paper Trades.
+export type PaperTradesResponse = {
+  mode: "PAPER_ONLY";
+  real_orders_enabled: false;
+  symbol: string | null;
+  status: PaperTradeStatus | null;
+  count: number;
+  summary: PaperTradesSummary;
+  trades: PaperTradeRecord[];
+};

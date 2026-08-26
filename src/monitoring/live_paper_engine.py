@@ -33,7 +33,13 @@ class LivePaperEngineConfig:
     # Percorso del database SQLite locale.
     database_path: str = "data/live_paper/live_paper.db"
 
-    # ModalitÃ  obbligatoriamente simulata.
+    # Simbolo finanziario elaborato dal motore.
+    symbol: str = "EURUSD"
+
+    # Timeframe associato ai segnali.
+    timeframe: str = "M15"
+
+    # Modalità obbligatoriamente simulata.
     paper_trading_only: bool = True
 
 
@@ -41,7 +47,7 @@ class LivePaperEngineConfig:
 class LivePaperCycleReport:
     """Risultato di un singolo ciclo del Live Paper Engine."""
 
-    # Momento UTC in cui Ã¨ stato eseguito il polling.
+    # Momento UTC in cui è stato eseguito il polling.
     polled_at_utc: str
 
     # Numero di nuove candele chiuse ricevute.
@@ -59,8 +65,32 @@ class LivePaperCycleReport:
     # Numero di segnali duplicati ignorati.
     duplicate_signals: int
 
-    # Indica se lo storico minimo Ã¨ disponibile.
+    # Indica se lo storico minimo è disponibile.
     history_ready: bool
+
+
+def _normalize_required_code(
+    value: str,
+    *,
+    field_name: str,
+) -> str:
+    """Normalizza un codice testuale obbligatorio."""
+
+    # Il valore deve essere una stringa.
+    if not isinstance(
+        value,
+        str,
+    ):
+        raise LivePaperEngineError(f"{field_name} deve essere una stringa.")
+
+    # Rimuove gli spazi e converte in maiuscolo.
+    selected_value = value.strip().upper()
+
+    # Il codice non può essere vuoto.
+    if not selected_value:
+        raise LivePaperEngineError(f"{field_name} non può essere vuoto.")
+
+    return selected_value
 
 
 def _validate_config(
@@ -72,11 +102,23 @@ def _validate_config(
     if config.minimum_history_bars <= 0:
         raise LivePaperEngineError("Il numero minimo di candele deve essere maggiore di zero.")
 
-    # Il percorso del database non puÃ² essere vuoto.
+    # Il percorso del database non può essere vuoto.
     if not config.database_path.strip():
-        raise LivePaperEngineError("Il percorso del database non puÃ² essere vuoto.")
+        raise LivePaperEngineError("Il percorso del database non può essere vuoto.")
 
-    # Questa versione Ã¨ utilizzabile esclusivamente in paper trading.
+    # Valida il simbolo.
+    _normalize_required_code(
+        config.symbol,
+        field_name="symbol",
+    )
+
+    # Valida il timeframe.
+    _normalize_required_code(
+        config.timeframe,
+        field_name="timeframe",
+    )
+
+    # Questa versione è utilizzabile solo in paper trading.
     if not config.paper_trading_only:
         raise LivePaperEngineError("Il Live Paper Engine richiede paper_trading_only=true.")
 
@@ -87,10 +129,13 @@ def _validate_processor_output(
     """Verifica l'output restituito dal processore."""
 
     # Il processore deve restituire un DataFrame.
-    if not isinstance(dataframe, pd.DataFrame):
+    if not isinstance(
+        dataframe,
+        pd.DataFrame,
+    ):
         raise LivePaperEngineError("Il processore deve restituire un pandas DataFrame.")
 
-    # Il risultato non puÃ² essere vuoto.
+    # Il risultato non può essere vuoto.
     if dataframe.empty:
         raise LivePaperEngineError("Il processore ha restituito un DataFrame vuoto.")
 
@@ -106,7 +151,7 @@ def _validate_processor_output(
     # Individua eventuali colonne mancanti.
     missing_columns = sorted(required_columns.difference(dataframe.columns))
 
-    # Interrompe l'elaborazione se manca almeno una colonna.
+    # Interrompe l'elaborazione se manca una colonna.
     if missing_columns:
         missing_text = ", ".join(missing_columns)
 
@@ -123,19 +168,25 @@ class LivePaperEngine:
     def __init__(
         self,
         provider: LiveDataProvider,
-        processor: Callable[[pd.DataFrame], pd.DataFrame],
+        processor: Callable[
+            [pd.DataFrame],
+            pd.DataFrame,
+        ],
         config: LivePaperEngineConfig | None = None,
     ) -> None:
         """Inizializza il Live Paper Engine."""
 
-        # Usa la configurazione predefinita se non specificata.
+        # Usa la configurazione predefinita se necessario.
         self._config = config or LivePaperEngineConfig()
 
         # Valida la configurazione.
         _validate_config(self._config)
 
-        # Il provider deve implementare l'interfaccia richiesta.
-        if not isinstance(provider, LiveDataProvider):
+        # Il provider deve implementare l'interfaccia.
+        if not isinstance(
+            provider,
+            LiveDataProvider,
+        ):
             raise TypeError("Il provider deve implementare LiveDataProvider.")
 
         # Il processore deve essere richiamabile.
@@ -146,7 +197,18 @@ class LivePaperEngine:
         self._provider = provider
         self._processor = processor
 
-        # Inizializza uno storico OHLCV vuoto.
+        # Normalizza simbolo e timeframe una sola volta.
+        self._symbol = _normalize_required_code(
+            self._config.symbol,
+            field_name="symbol",
+        )
+
+        self._timeframe = _normalize_required_code(
+            self._config.timeframe,
+            field_name="timeframe",
+        )
+
+        # Inizializza lo storico OHLCV.
         self._history = pd.DataFrame(
             columns=[
                 "timestamp",
@@ -161,29 +223,52 @@ class LivePaperEngine:
         # Prepara il percorso del database.
         self._database_path = Path(self._config.database_path)
 
-        # Crea il database e la tabella dei segnali.
+        # Crea o migra il database.
         self._initialize_database()
 
     @property
-    def history(self) -> pd.DataFrame:
+    def history(
+        self,
+    ) -> pd.DataFrame:
         """Restituisce una copia dello storico disponibile."""
 
-        # Restituisce una copia per impedire modifiche esterne.
         return self._history.copy(deep=True)
 
     @property
-    def database_path(self) -> Path:
+    def database_path(
+        self,
+    ) -> Path:
         """Restituisce il percorso del database SQLite."""
 
         return self._database_path
 
-    def _connect(self) -> sqlite3.Connection:
+    @property
+    def symbol(
+        self,
+    ) -> str:
+        """Restituisce il simbolo operativo."""
+
+        return self._symbol
+
+    @property
+    def timeframe(
+        self,
+    ) -> str:
+        """Restituisce il timeframe operativo."""
+
+        return self._timeframe
+
+    def _connect(
+        self,
+    ) -> sqlite3.Connection:
         """Crea una connessione al database SQLite."""
 
         return sqlite3.connect(self._database_path)
 
-    def _initialize_database(self) -> None:
-        """Crea il database e la tabella dei segnali."""
+    def _initialize_database(
+        self,
+    ) -> None:
+        """Crea e migra la tabella persistente dei segnali."""
 
         # Crea la cartella del database.
         self._database_path.parent.mkdir(
@@ -193,11 +278,13 @@ class LivePaperEngine:
 
         # Apre una connessione al database.
         with self._connect() as connection:
-            # Crea la tabella dei segnali se non esiste.
+            # Crea lo schema completo per nuove installazioni.
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS signals (
                     signal_id TEXT PRIMARY KEY,
+                    symbol TEXT,
+                    timeframe TEXT,
                     timestamp TEXT NOT NULL,
                     signal_available_at TEXT NOT NULL,
                     signal TEXT NOT NULL,
@@ -223,29 +310,66 @@ class LivePaperEngine:
                 """
             )
 
-            # Recupera le colonne presenti nel database.
+            # Recupera le colonne già presenti.
             existing_columns = {
                 str(row[1]) for row in connection.execute("PRAGMA table_info(signals)").fetchall()
             }
 
-            # Definisce le colonne probabilistiche.
-            probability_columns = {
+            # Definisce tutte le migrazioni incrementali.
+            missing_column_definitions = {
+                "symbol": "TEXT",
+                "timeframe": "TEXT",
                 "probability_long": "REAL",
                 "probability_short": "REAL",
                 "probability_no_trade": "REAL",
             }
 
-            # Migra i database creati dalle versioni precedenti.
+            # Aggiunge solo le colonne mancanti.
             for (
                 column_name,
                 column_type,
-            ) in probability_columns.items():
+            ) in missing_column_definitions.items():
                 if column_name in existing_columns:
                     continue
 
                 connection.execute(f"ALTER TABLE signals ADD COLUMN {column_name} {column_type}")
 
-            # Conferma la creazione e le migrazioni.
+            # Migra i record storici privi del simbolo.
+            connection.execute(
+                """
+                UPDATE signals
+                SET symbol = ?
+                WHERE symbol IS NULL
+                   OR TRIM(symbol) = ''
+                """,
+                (self._symbol,),
+            )
+
+            # Migra i record storici privi del timeframe.
+            connection.execute(
+                """
+                UPDATE signals
+                SET timeframe = ?
+                WHERE timeframe IS NULL
+                   OR TRIM(timeframe) = ''
+                """,
+                (self._timeframe,),
+            )
+
+            # Crea un indice per le query multi-strumento.
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                    idx_signals_symbol_timeframe_timestamp
+                ON signals (
+                    symbol,
+                    timeframe,
+                    timestamp
+                )
+                """
+            )
+
+            # Conferma creazione e migrazioni.
             connection.commit()
 
     def _append_history(
@@ -254,11 +378,11 @@ class LivePaperEngine:
     ) -> None:
         """Aggiunge nuove candele allo storico senza duplicati."""
 
-        # Non esegue operazioni se non sono presenti nuove candele.
+        # Non esegue operazioni senza nuove candele.
         if new_bars.empty:
             return
 
-        # Unisce storico precedente e nuove candele.
+        # Unisce storico e nuove candele.
         combined_history = pd.concat(
             [
                 self._history,
@@ -270,9 +394,11 @@ class LivePaperEngine:
         # Ordina cronologicamente le candele.
         combined_history = combined_history.sort_values("timestamp")
 
-        # Mantiene una sola riga per ogni timestamp.
+        # Mantiene una riga per timestamp.
         combined_history = combined_history.drop_duplicates(
-            subset=["timestamp"],
+            subset=[
+                "timestamp",
+            ],
             keep="first",
         )
 
@@ -283,33 +409,29 @@ class LivePaperEngine:
     def _optional_float(
         value: object,
     ) -> float | None:
-        """Converte un valore numerico gestendo i campi mancanti."""
+        """Converte un valore numerico opzionale."""
 
-        # Restituisce None per valori mancanti o NaN.
         if value is None or pd.isna(value):
             return None
 
-        # Converte il valore in float.
         return float(value)
 
     @staticmethod
     def _optional_text(
         value: object,
     ) -> str | None:
-        """Converte un valore testuale gestendo i campi mancanti."""
+        """Converte un valore testuale opzionale."""
 
-        # Restituisce None per valori mancanti o NaN.
         if value is None or pd.isna(value):
             return None
 
-        # Converte il valore in stringa.
         return str(value)
 
     def _build_signal_id(
         self,
         row: pd.Series,
     ) -> str:
-        """Costruisce l'identificativo immutabile del segnale."""
+        """Costruisce l'identificativo immutabile multi-strumento."""
 
         # Converte il timestamp in formato ISO.
         timestamp_text = pd.Timestamp(row["timestamp"]).isoformat()
@@ -317,11 +439,11 @@ class LivePaperEngine:
         # Recupera la sorgente del segnale.
         signal_source = str(row["signal_source"])
 
-        # Recupera la versione del modello, se disponibile.
+        # Recupera la versione del modello.
         model_version = self._optional_text(row.get("model_version")) or "NO_MODEL"
 
-        # Combina i valori in un identificativo stabile.
-        return f"{timestamp_text}|{signal_source}|{model_version}"
+        # Include simbolo e timeframe nell'identificativo.
+        return f"{self._symbol}|{self._timeframe}|{timestamp_text}|{signal_source}|{model_version}"
 
     def _insert_signal(
         self,
@@ -333,9 +455,11 @@ class LivePaperEngine:
         # Costruisce l'identificativo univoco.
         signal_id = self._build_signal_id(row)
 
-        # Prepara i valori da salvare.
+        # Prepara tutti i valori persistenti.
         values = (
             signal_id,
+            self._symbol,
+            self._timeframe,
             pd.Timestamp(row["timestamp"]).isoformat(),
             pd.Timestamp(row["signal_available_at"]).isoformat(),
             str(row["signal"]),
@@ -359,12 +483,14 @@ class LivePaperEngine:
             created_at_utc.isoformat(),
         )
 
-        # INSERT OR IGNORE impedisce la modifica retroattiva.
+        # Inserisce senza sovrascrivere record esistenti.
         with self._connect() as connection:
             cursor = connection.execute(
                 """
                 INSERT OR IGNORE INTO signals (
                     signal_id,
+                    symbol,
+                    timeframe,
                     timestamp,
                     signal_available_at,
                     signal,
@@ -387,15 +513,16 @@ class LivePaperEngine:
                     operating_mode,
                     created_at_utc
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 """,
                 values,
             )
 
-            # Conferma l'inserimento.
             connection.commit()
 
-            # rowcount uguale a uno indica un nuovo record.
             return cursor.rowcount == 1
 
     def run_cycle(
@@ -415,52 +542,49 @@ class LivePaperEngine:
         selected_time = selected_time.tz_convert("UTC")
 
         # Interroga il provider dati.
-        poll_result = self._provider.poll(current_time_utc=selected_time)
+        poll_result = self._provider.poll(current_time_utc=(selected_time))
 
-        # Aggiunge allo storico le nuove candele chiuse.
+        # Aggiunge le nuove candele chiuse.
         self._append_history(poll_result.new_closed_bars)
 
-        # Controlla se Ã¨ disponibile lo storico minimo.
+        # Controlla lo storico minimo.
         history_ready = len(self._history) >= self._config.minimum_history_bars
 
-        # Inizializza i contatori del ciclo.
+        # Inizializza i contatori.
         generated_signals = 0
         inserted_signals = 0
         duplicate_signals = 0
 
-        # Esegue il processore solamente se:
-        # 1. sono arrivate nuove candele;
-        # 2. lo storico minimo Ã¨ disponibile.
+        # Esegue l'inferenza solo con nuove candele
+        # e storico sufficiente.
         if not poll_result.new_closed_bars.empty and history_ready:
-            # Elabora una copia dello storico disponibile.
             processor_output = self._processor(self._history.copy(deep=True))
 
-            # Verifica la struttura dell'output.
+            # Verifica l'output del processore.
             _validate_processor_output(processor_output)
 
-            # Considera solamente l'ultima riga prodotta.
+            # Considera l'ultima riga prodotta.
             current_signal = processor_output.iloc[-1]
 
-            # Recupera il timestamp dell'ultima candela storica.
+            # Recupera l'ultimo timestamp storico.
             latest_history_timestamp = self._history.iloc[-1]["timestamp"]
 
-            # Il segnale deve riferirsi all'ultima candela disponibile.
+            # Il segnale deve riferirsi all'ultima candela.
             if pd.Timestamp(current_signal["timestamp"]) != pd.Timestamp(latest_history_timestamp):
                 raise LivePaperEngineError(
-                    "Il processore non ha restituito il segnale "
-                    "relativo all'ultima candela disponibile."
+                    "Il processore non ha restituito "
+                    "il segnale relativo all'ultima "
+                    "candela disponibile."
                 )
 
-            # Registra un segnale generato.
             generated_signals = 1
 
-            # Inserisce il segnale senza consentire sovrascritture.
+            # Inserisce il segnale.
             inserted = self._insert_signal(
                 row=current_signal,
-                created_at_utc=selected_time,
+                created_at_utc=(selected_time),
             )
 
-            # Aggiorna i contatori.
             if inserted:
                 inserted_signals = 1
             else:
@@ -468,28 +592,35 @@ class LivePaperEngine:
 
         # Restituisce il report del ciclo.
         return LivePaperCycleReport(
-            polled_at_utc=selected_time.isoformat(),
+            polled_at_utc=(selected_time.isoformat()),
             new_closed_bars=len(poll_result.new_closed_bars),
             total_history_bars=len(self._history),
-            generated_signals=generated_signals,
-            inserted_signals=inserted_signals,
-            duplicate_signals=duplicate_signals,
-            history_ready=history_ready,
+            generated_signals=(generated_signals),
+            inserted_signals=(inserted_signals),
+            duplicate_signals=(duplicate_signals),
+            history_ready=(history_ready),
         )
 
-    def load_signals(self) -> pd.DataFrame:
-        """Carica tutti i segnali salvati nel database."""
+    def load_signals(
+        self,
+    ) -> pd.DataFrame:
+        """Carica i segnali del simbolo e timeframe correnti."""
 
-        # Legge i segnali in ordine cronologico.
+        # Filtra il registro per contesto operativo.
         with self._connect() as connection:
             signals = pd.read_sql_query(
                 """
                 SELECT *
                 FROM signals
+                WHERE symbol = ?
+                  AND timeframe = ?
                 ORDER BY timestamp ASC
                 """,
                 connection,
+                params=(
+                    self._symbol,
+                    self._timeframe,
+                ),
             )
 
-        # Restituisce il registro completo.
         return signals
