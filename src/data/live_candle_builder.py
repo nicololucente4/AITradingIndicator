@@ -27,7 +27,7 @@ class LiveMarketTickData:
     # Timestamp UTC del tick.
     timestamp: pd.Timestamp
 
-    # Volume del tick, se disponibile.
+    # Volume associato al tick, se disponibile.
     volume: float = 0.0
 
     @property
@@ -81,7 +81,7 @@ class LiveCandle:
     # Timestamp dell'ultimo tick applicato.
     last_tick_at_utc: pd.Timestamp
 
-    # Indica che la candela non è ancora definitiva.
+    # Indica se la candela è definitiva.
     is_closed: bool = False
 
     # Sorgente del prezzo.
@@ -134,14 +134,17 @@ def _normalize_required_code(
 ) -> str:
     """Normalizza un codice testuale obbligatorio."""
 
+    # Il codice deve essere una stringa.
     if not isinstance(
         value,
         str,
     ):
         raise LiveCandleBuilderError(f"{field_name} deve essere una stringa.")
 
+    # Rimuove gli spazi e converte in maiuscolo.
     normalized_value = value.strip().upper()
 
+    # Il codice non può essere vuoto.
     if not normalized_value:
         raise LiveCandleBuilderError(f"{field_name} non può essere vuoto.")
 
@@ -157,6 +160,7 @@ def _normalize_timestamp(
 
     selected_timestamp = pd.Timestamp(value)
 
+    # Il timestamp deve avere una timezone.
     if selected_timestamp.tzinfo is None:
         raise LiveCandleBuilderError(f"{field_name} deve includere una timezone.")
 
@@ -239,13 +243,13 @@ def get_candle_open_timestamp(
 
     timeframe_minutes = get_timeframe_minutes(normalized_timeframe)
 
-    # Il timeframe settimanale parte dal lunedì UTC.
+    # La candela settimanale parte dal lunedì UTC.
     if normalized_timeframe == "W1":
         day_start = selected_timestamp.normalize()
 
         return day_start - pd.Timedelta(days=(selected_timestamp.weekday()))
 
-    # Utilizza il numero di minuti trascorsi dall'epoca Unix.
+    # Calcola il bucket temporale dall'epoca Unix.
     timestamp_nanoseconds = selected_timestamp.value
 
     timeframe_nanoseconds = int(pd.Timedelta(minutes=timeframe_minutes).value)
@@ -283,6 +287,7 @@ def create_live_market_tick(
         field_name="ask",
     )
 
+    # ASK non può essere inferiore al BID.
     if selected_ask < selected_bid:
         raise LiveCandleBuilderError("ask non può essere inferiore a bid.")
 
@@ -312,16 +317,19 @@ class LiveCandleBuilder:
     ) -> None:
         """Inizializza il costruttore della candela live."""
 
+        # Normalizza il simbolo.
         self._symbol = _normalize_required_code(
             symbol,
             field_name="symbol",
         )
 
+        # Normalizza il timeframe.
         self._timeframe = _normalize_required_code(
             timeframe,
             field_name="timeframe",
         )
 
+        # Recupera la durata del timeframe.
         self._timeframe_minutes = get_timeframe_minutes(self._timeframe)
 
         # Conserva la candela attualmente in formazione.
@@ -350,7 +358,7 @@ class LiveCandleBuilder:
     def current_candle(
         self,
     ) -> LiveCandle | None:
-        """Restituisce la candela attualmente in formazione."""
+        """Restituisce la candela in formazione."""
 
         return self._current_candle
 
@@ -358,7 +366,7 @@ class LiveCandleBuilder:
     def last_closed_candle(
         self,
     ) -> LiveCandle | None:
-        """Restituisce l'ultima candela chiusa dal builder."""
+        """Restituisce l'ultima candela chiusa."""
 
         return self._last_closed_candle
 
@@ -375,7 +383,7 @@ class LiveCandleBuilder:
 
         closes_at_utc = candle_timestamp + pd.Timedelta(minutes=(self._timeframe_minutes))
 
-        # Il grafico viene costruito sul prezzo BID.
+        # La candela utilizza il prezzo BID.
         selected_price = tick.bid
 
         return LiveCandle(
@@ -401,19 +409,21 @@ class LiveCandleBuilder:
         if self._current_candle is None:
             return None
 
+        current_candle = self._current_candle
+
         closed_candle = LiveCandle(
-            symbol=(self._current_candle.symbol),
-            timeframe=(self._current_candle.timeframe),
-            timestamp=(self._current_candle.timestamp),
-            closes_at_utc=(self._current_candle.closes_at_utc),
-            open=(self._current_candle.open),
-            high=(self._current_candle.high),
-            low=(self._current_candle.low),
-            close=(self._current_candle.close),
-            volume=(self._current_candle.volume),
-            last_tick_at_utc=(self._current_candle.last_tick_at_utc),
+            symbol=current_candle.symbol,
+            timeframe=current_candle.timeframe,
+            timestamp=current_candle.timestamp,
+            closes_at_utc=(current_candle.closes_at_utc),
+            open=current_candle.open,
+            high=current_candle.high,
+            low=current_candle.low,
+            close=current_candle.close,
+            volume=current_candle.volume,
+            last_tick_at_utc=(current_candle.last_tick_at_utc),
             is_closed=True,
-            price_source=(self._current_candle.price_source),
+            price_source=(current_candle.price_source),
         )
 
         self._last_closed_candle = closed_candle
@@ -429,23 +439,24 @@ class LiveCandleBuilder:
     ]:
         """Aggiorna la candela con un nuovo tick.
 
-        Restituisce:
-
-        1. la candela corrente in formazione;
-        2. l'eventuale candela appena chiusa.
+        Restituisce la candela corrente e
+        l'eventuale candela appena chiusa.
         """
 
+        # Verifica il tipo del tick.
         if not isinstance(
             tick,
             LiveMarketTickData,
         ):
             raise TypeError("tick deve essere un'istanza di LiveMarketTickData.")
 
+        # Il simbolo deve corrispondere.
         if tick.symbol != self._symbol:
             raise LiveCandleBuilderError(
                 "Il simbolo del tick non corrisponde al simbolo del builder."
             )
 
+        # I tick devono arrivare in ordine cronologico.
         if (
             self._current_candle is not None
             and tick.timestamp < self._current_candle.last_tick_at_utc
@@ -457,7 +468,7 @@ class LiveCandleBuilder:
             self._timeframe,
         )
 
-        # Il primo tick crea una nuova candela.
+        # Il primo tick crea la prima candela.
         if self._current_candle is None:
             self._current_candle = self._create_candle(tick)
 
@@ -466,7 +477,8 @@ class LiveCandleBuilder:
                 None,
             )
 
-        # Un nuovo intervallo chiude la candela precedente.
+        # Il primo tick del nuovo intervallo
+        # chiude la candela precedente.
         if tick_candle_timestamp > self._current_candle.timestamp:
             closed_candle = self._close_current_candle()
 
@@ -477,31 +489,34 @@ class LiveCandleBuilder:
                 closed_candle,
             )
 
-        # Un tick non può appartenere a un intervallo precedente.
+        # Rifiuta tick appartenenti a intervalli precedenti.
         if tick_candle_timestamp < self._current_candle.timestamp:
             raise LiveCandleBuilderError(
                 "Il tick appartiene a una candela precedente a quella corrente."
             )
 
+        # Recupera la candela corrente.
+        current_candle = self._current_candle
+
         # Aggiorna OHLCV usando il BID MT5.
         selected_price = tick.bid
 
         self._current_candle = LiveCandle(
-            symbol=(self._current_candle.symbol),
-            timeframe=(self._current_candle.timeframe),
-            timestamp=(self._current_candle.timestamp),
-            closes_at_utc=(self._current_candle.closes_at_utc),
-            open=(self._current_candle.open),
+            symbol=current_candle.symbol,
+            timeframe=current_candle.timeframe,
+            timestamp=current_candle.timestamp,
+            closes_at_utc=(current_candle.closes_at_utc),
+            open=current_candle.open,
             high=max(
-                self._current_candle.high,
+                current_candle.high,
                 selected_price,
             ),
             low=min(
-                self._current_candle.low,
+                current_candle.low,
                 selected_price,
             ),
             close=selected_price,
-            volume=(self._current_candle.volume + tick.volume),
+            volume=(current_candle.volume + tick.volume),
             last_tick_at_utc=(tick.timestamp),
             is_closed=False,
             price_source="MT5_LIVE_BID",
@@ -515,7 +530,7 @@ class LiveCandleBuilder:
     def reset(
         self,
     ) -> None:
-        """Azzera lo stato del builder."""
+        """Azzera completamente lo stato del builder."""
 
         self._current_candle = None
         self._last_closed_candle = None
