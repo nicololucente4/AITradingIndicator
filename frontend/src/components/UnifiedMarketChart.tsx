@@ -10,7 +10,6 @@ import {
   CandlestickSeries,
   ColorType,
   createChart,
-  createSeriesMarkers,
   HistogramSeries,
   LineSeries,
   LineStyle,
@@ -19,10 +18,14 @@ import {
   type IChartApi,
   type LineData,
   type MouseEventParams,
-  type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
+
+import {
+  createTradeMarkerItems,
+  TradeMarkersPrimitive,
+} from "@/src/components/TradeMarkersPrimitive";
 
 import {
   getLiveTick,
@@ -402,107 +405,6 @@ function getTradeAlias(
   )}`;
 }
 
-/**
- * Converte i paper trade in marker grafici.
- */
-function prepareTradeMarkers(
-  trades: PaperTradeRecord[]
-): SeriesMarker<UTCTimestamp>[] {
-  const orderedTrades =
-    [...trades].sort(
-      (
-        firstTrade,
-        secondTrade
-      ) =>
-        Date.parse(
-          firstTrade.opened_at_utc
-        ) -
-        Date.parse(
-          secondTrade.opened_at_utc
-        )
-    );
-
-  const markers:
-    SeriesMarker<UTCTimestamp>[] =
-    [];
-
-  orderedTrades.forEach(
-    (
-      trade,
-      index
-    ) => {
-      const alias =
-        getTradeAlias(
-          trade,
-          index
-        );
-
-      markers.push({
-        time:
-          convertToUtcTimestamp(
-            trade.opened_at_utc
-          ),
-        position:
-          trade.direction ===
-          "LONG"
-            ? "belowBar"
-            : "aboveBar",
-        color:
-          trade.direction ===
-          "LONG"
-            ? "#22c55e"
-            : "#ef4444",
-        shape:
-          trade.direction ===
-          "LONG"
-            ? "arrowUp"
-            : "arrowDown",
-        text:
-          `${alias} OPEN`,
-      });
-
-      if (
-        trade.status ===
-          "CLOSED" &&
-        trade.closed_at_utc !==
-          null
-      ) {
-        markers.push({
-          time:
-            convertToUtcTimestamp(
-              trade.closed_at_utc
-            ),
-          position:
-            trade.direction ===
-            "LONG"
-              ? "aboveBar"
-              : "belowBar",
-          color:
-            "#38bdf8",
-          shape:
-            "circle",
-          text:
-            `${alias} CLOSE`,
-        });
-      }
-    }
-  );
-
-  markers.sort(
-    (
-      firstMarker,
-      secondMarker
-    ) =>
-      Number(
-        firstMarker.time
-      ) -
-      Number(
-        secondMarker.time
-      )
-  );
-
-  return markers;
-}
 
 /**
  * Recupera l'ultima posizione ancora aperta.
@@ -1070,17 +972,20 @@ export default function UnifiedMarketChart({
           "LIVE BID",
       });
 
-    if (
-      trades.length >
-      0
-    ) {
-      createSeriesMarkers(
-        candlestickSeries,
-        prepareTradeMarkers(
-          trades
+    // Crea i marker personalizzati ancorati
+    // al prezzo effettivo di apertura e chiusura.
+    const tradeMarkersPrimitive =
+      new TradeMarkersPrimitive(
+        createTradeMarkerItems(
+          trades,
+          timeframe
         )
       );
-    }
+
+    // Collega la primitive alla serie candlestick.
+    candlestickSeries.attachPrimitive(
+      tradeMarkersPrimitive
+    );
 
     if (
       showEma
@@ -1521,6 +1426,12 @@ export default function UnifiedMarketChart({
 
       chart.unsubscribeCrosshairMove(
         handleCrosshairMove
+      );
+
+      // Scollega i marker personalizzati
+      // prima di eliminare il grafico.
+      candlestickSeries.detachPrimitive(
+        tradeMarkersPrimitive
       );
 
       chartRef.current =
