@@ -18,6 +18,10 @@ import type {
   PaperTradeRecord,
 } from "@/src/types/market";
 
+import {
+  getPaperTradesWithAliases,
+} from "@/src/utils/tradeAlias";
+
 // Evento operativo rappresentato sul grafico.
 export type TradeMarkerEvent =
   | "OPEN"
@@ -51,6 +55,8 @@ type TradeMarkerStyle = {
   backgroundColor: string;
   textColor: string;
   triangleColor: string;
+  triangleBorderColor: string;
+  glowColor: string;
 };
 
 // Parametri forniti da Lightweight Charts.
@@ -81,14 +87,17 @@ const TIMEFRAME_MINUTES: Record<
   W1: 10080,
 };
 
-// Dimensioni del box grafico.
-const BOX_HEIGHT = 24;
-const BOX_HORIZONTAL_PADDING = 8;
-const BOX_TRIANGLE_GAP = 5;
-const TRIANGLE_SIZE = 7;
+// Dimensioni del marker.
+const BOX_HEIGHT = 22;
+const BOX_HORIZONTAL_PADDING = 7;
+const BOX_TRIANGLE_GAP = 4;
+const TRIANGLE_SIZE = 6;
 const BORDER_RADIUS = 5;
-const FONT =
-  "600 11px Inter, ui-sans-serif, system-ui, sans-serif";
+
+// Configurazione del testo.
+const FONT_SIZE = 10;
+const FONT_FAMILY =
+  "Inter, ui-sans-serif, system-ui, sans-serif";
 
 /**
  * Converte un timestamp ISO in millisecondi.
@@ -182,63 +191,81 @@ function alignTimestampToTimeframe(
 }
 
 /**
- * Crea un alias progressivo leggibile.
- */
-function createTradeAlias(
-  trade: PaperTradeRecord,
-  index: number
-): string {
-  const prefix =
-    trade.direction === "LONG"
-      ? "L"
-      : "S";
-
-  return `${prefix}-${String(
-    index + 1
-  ).padStart(
-    2,
-    "0"
-  )}`;
-}
-
-/**
  * Converte i paper trade nei marker personalizzati.
+ *
+ * Gli alias vengono calcolati sull'elenco completo.
+ * Solo dopo viene applicato il filtro opzionale.
+ *
+ * Questo garantisce che S-54 resti S-54
+ * anche quando viene isolato sul grafico.
  */
 export function createTradeMarkerItems(
   trades: PaperTradeRecord[],
-  timeframe: AvailableTimeframe
+  timeframe: AvailableTimeframe,
+  selectedTradeId: string | null = null
 ): TradeMarkerItem[] {
-  // Ordina i trade dalla prima apertura alla più recente.
-  const orderedTrades =
-    [...trades].sort(
-      (
-        firstTrade,
-        secondTrade
-      ) =>
-        parseTimestamp(
-          firstTrade.opened_at_utc
-        ) -
-        parseTimestamp(
-          secondTrade.opened_at_utc
-        )
+  // Genera ordinamento e alias condivisi.
+  const tradesWithAliases =
+    getPaperTradesWithAliases(
+      trades
     );
+
+  // Applica il filtro solo dopo avere calcolato gli alias.
+  const visibleTrades =
+    selectedTradeId ===
+    null
+      ? tradesWithAliases
+      : tradesWithAliases.filter(
+          (
+            tradeInformation
+          ) =>
+            tradeInformation
+              .trade
+              .trade_id ===
+            selectedTradeId
+        );
 
   const markers:
     TradeMarkerItem[] =
     [];
 
-  orderedTrades.forEach(
-    (
+  for (
+    const tradeInformation of
+    visibleTrades
+  ) {
+    const {
       trade,
-      index
-    ) => {
-      const alias =
-        createTradeAlias(
-          trade,
-          index
-        );
+      alias,
+    } =
+      tradeInformation;
 
-      // Aggiunge il marker di apertura.
+    // Aggiunge il marker di apertura.
+    markers.push({
+      tradeId:
+        trade.trade_id,
+      alias,
+      direction:
+        trade.direction,
+      event:
+        "OPEN",
+      time:
+        alignTimestampToTimeframe(
+          trade.opened_at_utc,
+          timeframe
+        ),
+      price:
+        trade.entry_price,
+    });
+
+    // Aggiunge il marker di chiusura.
+    if (
+      trade.status ===
+        "CLOSED" &&
+      trade.closed_at_utc !==
+        null &&
+      trade.exit_price !==
+        null
+    ) {
       markers.push({
         tradeId:
           trade.trade_id,
@@ -246,50 +273,23 @@ export function createTradeMarkerItems(
         direction:
           trade.direction,
         event:
-          "OPEN",
+          "CLOSE",
         time:
           alignTimestampToTimeframe(
-            trade.opened_at_utc,
+            trade.closed_at_utc,
             timeframe
           ),
         price:
-          trade.entry_price,
+          trade.exit_price,
       });
-
-      // Aggiunge il marker di chiusura.
-      if (
-        trade.status ===
-          "CLOSED" &&
-        trade.closed_at_utc !==
-          null &&
-        trade.exit_price !==
-          null
-      ) {
-        markers.push({
-          tradeId:
-            trade.trade_id,
-          alias,
-          direction:
-            trade.direction,
-          event:
-            "CLOSE",
-          time:
-            alignTimestampToTimeframe(
-              trade.closed_at_utc,
-              timeframe
-            ),
-          price:
-            trade.exit_price,
-        });
-      }
     }
-  );
+  }
 
   return markers;
 }
 
 /**
- * Restituisce colori coerenti con la direzione.
+ * Restituisce colori ad alto contrasto.
  */
 function getMarkerStyle(
   marker: TradeMarkerItem
@@ -300,25 +300,33 @@ function getMarkerStyle(
   ) {
     return {
       borderColor:
-        "#22c55e",
+        "#4ade80",
       backgroundColor:
-        "rgba(6, 78, 59, 0.94)",
+        "rgba(5, 46, 22, 0.96)",
       textColor:
-        "#dcfce7",
+        "#f0fdf4",
       triangleColor:
         "#22c55e",
+      triangleBorderColor:
+        "#ffffff",
+      glowColor:
+        "rgba(0, 0, 0, 0.95)",
     };
   }
 
   return {
     borderColor:
-      "#ef4444",
+      "#fb7185",
     backgroundColor:
-      "rgba(127, 29, 29, 0.94)",
+      "rgba(69, 10, 10, 0.97)",
     textColor:
-      "#fee2e2",
+      "#fff1f2",
     triangleColor:
-      "#ef4444",
+      "#ff3344",
+    triangleBorderColor:
+      "#ffffff",
+    glowColor:
+      "rgba(0, 0, 0, 0.95)",
   };
 }
 
@@ -404,20 +412,13 @@ function createRoundedRectanglePath(
 }
 
 /**
- * Disegna un triangolo con punta sul prezzo.
+ * Determina se il marker deve essere
+ * visualizzato sotto il prezzo.
  */
-function drawTriangle(
-  context:
-    CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  marker: TradeMarkerItem,
-  color: string
-): void {
-  context.beginPath();
-
-  // LONG OPEN e SHORT CLOSE vengono mostrati sotto il prezzo.
-  const triangleBelowPrice =
+function isMarkerBelowPrice(
+  marker: TradeMarkerItem
+): boolean {
+  return (
     (
       marker.direction ===
         "LONG" &&
@@ -429,50 +430,144 @@ function drawTriangle(
         "SHORT" &&
       marker.event ===
         "CLOSE"
+    )
+  );
+}
+
+/**
+ * Crea il percorso geometrico del triangolo.
+ *
+ * La punta centrale coincide esattamente
+ * con la coordinata del prezzo.
+ */
+function createTrianglePath(
+  context:
+    CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  marker: TradeMarkerItem,
+  triangleSize: number
+): void {
+  const triangleBelowPrice =
+    isMarkerBelowPrice(
+      marker
     );
+
+  context.beginPath();
 
   if (
     triangleBelowPrice
   ) {
-    // La punta superiore indica esattamente il prezzo.
+    // Punta superiore sul prezzo esatto.
     context.moveTo(
       x,
       y
     );
 
     context.lineTo(
-      x - TRIANGLE_SIZE,
-      y + TRIANGLE_SIZE * 1.5
+      x - triangleSize,
+      y + triangleSize * 1.6
     );
 
     context.lineTo(
-      x + TRIANGLE_SIZE,
-      y + TRIANGLE_SIZE * 1.5
+      x + triangleSize,
+      y + triangleSize * 1.6
     );
   } else {
-    // La punta inferiore indica esattamente il prezzo.
+    // Punta inferiore sul prezzo esatto.
     context.moveTo(
       x,
       y
     );
 
     context.lineTo(
-      x - TRIANGLE_SIZE,
-      y - TRIANGLE_SIZE * 1.5
+      x - triangleSize,
+      y - triangleSize * 1.6
     );
 
     context.lineTo(
-      x + TRIANGLE_SIZE,
-      y - TRIANGLE_SIZE * 1.5
+      x + triangleSize,
+      y - triangleSize * 1.6
     );
   }
 
   context.closePath();
+}
+
+/**
+ * Disegna il triangolo con alone scuro
+ * e contorno bianco ad alto contrasto.
+ */
+function drawHighContrastTriangle(
+  context:
+    CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  marker: TradeMarkerItem,
+  style: TradeMarkerStyle,
+  horizontalPixelRatio: number,
+  verticalPixelRatio: number
+): void {
+  const selectedPixelRatio =
+    Math.max(
+      horizontalPixelRatio,
+      verticalPixelRatio
+    );
+
+  const triangleSize =
+    TRIANGLE_SIZE *
+    selectedPixelRatio;
+
+  // Disegna prima un alone scuro più largo.
+  context.save();
+
+  context.shadowColor =
+    style.glowColor;
+
+  context.shadowBlur =
+    5 *
+    selectedPixelRatio;
+
+  createTrianglePath(
+    context,
+    x,
+    y,
+    marker,
+    triangleSize
+  );
 
   context.fillStyle =
-    color;
+    style.triangleColor;
 
   context.fill();
+
+  context.restore();
+
+  // Ridisegna la forma con bordo bianco.
+  createTrianglePath(
+    context,
+    x,
+    y,
+    marker,
+    triangleSize
+  );
+
+  context.fillStyle =
+    style.triangleColor;
+
+  context.fill();
+
+  context.strokeStyle =
+    style.triangleBorderColor;
+
+  context.lineWidth =
+    Math.max(
+      1.5,
+      1.5 *
+        selectedPixelRatio
+    );
+
+  context.stroke();
 }
 
 /**
@@ -507,9 +602,6 @@ class TradeMarkersRenderer
 
         context.save();
 
-        context.font =
-          FONT;
-
         context.textBaseline =
           "middle";
 
@@ -536,11 +628,12 @@ class TradeMarkersRenderer
           const label =
             `${marker.alias} ${marker.event}`;
 
+          const fontSize =
+            FONT_SIZE *
+            verticalPixelRatio;
+
           context.font =
-            FONT.replace(
-              "11px",
-              `${11 * verticalPixelRatio}px`
-            );
+            `700 ${fontSize}px ${FONT_FAMILY}`;
 
           const textWidth =
             context.measureText(
@@ -557,50 +650,46 @@ class TradeMarkersRenderer
             BOX_HEIGHT *
             verticalPixelRatio;
 
-          const triangleBelowPrice =
-            (
-              marker.direction ===
-                "LONG" &&
-              marker.event ===
-                "OPEN"
-            ) ||
-            (
-              marker.direction ===
-                "SHORT" &&
-              marker.event ===
-                "CLOSE"
-            );
-
           const boxX =
             scaledX -
             boxWidth / 2;
 
+          const boxBelowPrice =
+            isMarkerBelowPrice(
+              marker
+            );
+
+          const triangleHeight =
+            TRIANGLE_SIZE *
+            1.6 *
+            verticalPixelRatio;
+
+          const selectedGap =
+            BOX_TRIANGLE_GAP *
+            verticalPixelRatio;
+
           const boxY =
-            triangleBelowPrice
+            boxBelowPrice
               ? scaledY +
-                (
-                  TRIANGLE_SIZE *
-                    1.5 +
-                  BOX_TRIANGLE_GAP
-                ) *
-                  verticalPixelRatio
+                triangleHeight +
+                selectedGap
               : scaledY -
-                (
-                  TRIANGLE_SIZE *
-                    1.5 +
-                  BOX_TRIANGLE_GAP
-                ) *
-                  verticalPixelRatio -
+                triangleHeight -
+                selectedGap -
                 boxHeight;
 
-          drawTriangle(
+          // Disegna il triangolo con bordo bianco e alone scuro.
+          drawHighContrastTriangle(
             context,
             scaledX,
             scaledY,
             marker,
-            style.triangleColor
+            style,
+            horizontalPixelRatio,
+            verticalPixelRatio
           );
 
+          // Crea il percorso del box.
           createRoundedRectanglePath(
             context,
             boxX,
@@ -611,22 +700,48 @@ class TradeMarkersRenderer
               verticalPixelRatio
           );
 
+          // Disegna lo sfondo del box con alone scuro.
+          context.save();
+
+          context.shadowColor =
+            style.glowColor;
+
+          context.shadowBlur =
+            4 *
+            verticalPixelRatio;
+
           context.fillStyle =
             style.backgroundColor;
 
           context.fill();
 
+          context.restore();
+
+          // Ricrea il percorso per il bordo.
+          createRoundedRectanglePath(
+            context,
+            boxX,
+            boxY,
+            boxWidth,
+            boxHeight,
+            BORDER_RADIUS *
+              verticalPixelRatio
+          );
+
+          // Disegna il bordo coerente con la direzione.
           context.strokeStyle =
             style.borderColor;
 
           context.lineWidth =
             Math.max(
-              1,
-              verticalPixelRatio
+              1.5,
+              1.5 *
+                verticalPixelRatio
             );
 
           context.stroke();
 
+          // Disegna il testo dell'alias.
           context.fillStyle =
             style.textColor;
 
@@ -653,6 +768,7 @@ class TradeMarkersRenderer
 class TradeMarkersPaneView
   implements IPrimitivePaneView
 {
+  // Coordinate correnti dei marker.
   private coordinates:
     TradeMarkerCoordinates[] =
     [];
@@ -663,7 +779,8 @@ class TradeMarkersPaneView
   ) {}
 
   /**
-   * Aggiorna le coordinate dopo zoom o spostamento.
+   * Aggiorna le coordinate dopo zoom,
+   * spostamento o modifica della scala.
    */
   public update(): void {
     this.coordinates =
@@ -671,11 +788,17 @@ class TradeMarkersPaneView
         .calculateCoordinates();
   }
 
+  /**
+   * Disegna i marker sopra candele e griglia.
+   */
   public zOrder():
     "top" {
     return "top";
   }
 
+  /**
+   * Restituisce il renderer Canvas.
+   */
   public renderer():
     IPrimitivePaneRenderer {
     return new TradeMarkersRenderer(
@@ -690,10 +813,12 @@ class TradeMarkersPaneView
 export class TradeMarkersPrimitive
   implements ISeriesPrimitive<Time>
 {
+  // Riferimento al grafico.
   private chart:
     IChartApiBase<Time> | null =
     null;
 
+  // Riferimento alla serie candlestick.
   private series:
     ISeriesApi<
       "Candlestick",
@@ -701,13 +826,16 @@ export class TradeMarkersPrimitive
     > | null =
     null;
 
+  // Callback per richiedere il ridisegno.
   private requestUpdate:
     (() => void) | null =
     null;
 
+  // Marker attualmente visualizzati.
   private markers:
     TradeMarkerItem[];
 
+  // Vista Canvas principale.
   private readonly paneView:
     TradeMarkersPaneView;
 
@@ -725,7 +853,8 @@ export class TradeMarkersPrimitive
   }
 
   /**
-   * Collega la primitive al grafico.
+   * Collega la primitive al grafico
+   * e alla serie candlestick.
    */
   public attached(
     parameters:
@@ -744,7 +873,8 @@ export class TradeMarkersPrimitive
   }
 
   /**
-   * Rimuove i riferimenti al grafico.
+   * Rimuove tutti i riferimenti
+   * quando la primitive viene scollegata.
    */
   public detached(): void {
     this.chart =
@@ -758,7 +888,8 @@ export class TradeMarkersPrimitive
   }
 
   /**
-   * Aggiorna i marker senza ricreare la primitive.
+   * Aggiorna i marker senza
+   * ricreare la primitive.
    */
   public setMarkers(
     markers:
@@ -783,20 +914,24 @@ export class TradeMarkersPrimitive
   }
 
   /**
-   * Ricalcola le coordinate dopo zoom e pan.
+   * Ricalcola tutte le coordinate visive.
    */
   public updateAllViews(): void {
     this.paneView.update();
   }
 
   /**
-   * Converte tempo e prezzo in coordinate grafiche.
+   * Converte tempo e prezzo
+   * nelle coordinate del grafico.
    */
   public calculateCoordinates():
     TradeMarkerCoordinates[] {
+    // Il calcolo richiede grafico e serie attivi.
     if (
-      this.chart === null ||
-      this.series === null
+      this.chart ===
+        null ||
+      this.series ===
+        null
     ) {
       return [];
     }
@@ -805,6 +940,7 @@ export class TradeMarkersPrimitive
       TradeMarkerCoordinates[] =
       [];
 
+    // Converte ogni marker nelle coordinate X e Y.
     for (
       const marker of
       this.markers
@@ -822,9 +958,12 @@ export class TradeMarkersPrimitive
             marker.price
           );
 
+      // Ignora marker esterni al range disponibile.
       if (
-        x === null ||
-        y === null
+        x ===
+          null ||
+        y ===
+          null
       ) {
         continue;
       }
@@ -832,9 +971,13 @@ export class TradeMarkersPrimitive
       coordinates.push({
         marker,
         x:
-          Number(x),
+          Number(
+            x
+          ),
         y:
-          Number(y),
+          Number(
+            y
+          ),
       });
     }
 

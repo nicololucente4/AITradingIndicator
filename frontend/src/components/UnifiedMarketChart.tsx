@@ -40,9 +40,20 @@ import type {
 
 // Proprietà ricevute dal componente.
 type UnifiedMarketChartProps = {
+  // Candele della combinazione visualizzata.
   candles: Candle[];
+
+  // Elenco completo dei trade.
+  // Serve per mantenere alias stabili come S-54.
   trades: PaperTradeRecord[];
+
+  // Trade eventualmente isolato dalla tabella.
+  selectedTradeId?: string | null;
+
+  // Simbolo finanziario visualizzato.
   symbol: string;
+
+  // Timeframe visualizzato.
   timeframe: AvailableTimeframe;
 };
 
@@ -672,6 +683,7 @@ function updateLiveCandle(
 export default function UnifiedMarketChart({
   candles,
   trades,
+  selectedTradeId = null,
   symbol,
   timeframe,
 }: UnifiedMarketChartProps) {
@@ -858,10 +870,12 @@ export default function UnifiedMarketChart({
               false,
             rightOffset:
               3,
+            // Mantiene le candele più compatte
+            // e consente un puntamento più preciso.
             barSpacing:
-              9,
+              6,
             minBarSpacing:
-              2,
+              1,
             lockVisibleTimeRangeOnResize:
               true,
             rightBarStaysOnScroll:
@@ -974,11 +988,14 @@ export default function UnifiedMarketChart({
 
     // Crea i marker personalizzati ancorati
     // al prezzo effettivo di apertura e chiusura.
+    // Calcola gli alias sull'elenco completo dei trade.
+    // Applica il filtro solamente dopo avere assegnato gli alias.
     const tradeMarkersPrimitive =
       new TradeMarkersPrimitive(
         createTradeMarkerItems(
           trades,
-          timeframe
+          timeframe,
+          selectedTradeId
         )
       );
 
@@ -1442,6 +1459,7 @@ export default function UnifiedMarketChart({
   }, [
     candles,
     trades,
+    selectedTradeId,
     symbol,
     timeframe,
     viewKey,

@@ -1,16 +1,15 @@
-﻿// Importa i componenti del terminale.
+﻿// Importa i componenti della dashboard.
 import CurrentTradeCard from "@/src/components/CurrentTradeCard";
 import Header from "@/src/components/Header";
 import MarketSnapshot from "@/src/components/MarketSnapshot";
 import MarketStatus from "@/src/components/MarketStatus";
 import OutcomesTable from "@/src/components/OutcomesTable";
-import PaperTradesPanel from "@/src/components/PaperTradesPanel";
 import ProjectionPanel from "@/src/components/ProjectionPanel";
 import SignalsTable from "@/src/components/SignalsTable";
 import StatisticsPanel from "@/src/components/StatisticsPanel";
 import SymbolSelector from "@/src/components/SymbolSelector";
 import TimeframeSelector from "@/src/components/TimeframeSelector";
-import UnifiedMarketChart from "@/src/components/UnifiedMarketChart";
+import TradeAnalysisWorkspace from "@/src/components/TradeAnalysisWorkspace";
 
 // Importa le funzioni che interrogano FastAPI.
 import {
@@ -44,57 +43,46 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 // Elenca tutti i timeframe riconosciuti.
-const SUPPORTED_TIMEFRAMES:
-  AvailableTimeframe[] = [
-    "M1",
-    "M2",
-    "M3",
-    "M5",
-    "M10",
-    "M15",
-    "M30",
-    "H1",
-    "H2",
-    "H4",
-    "H8",
-    "H12",
-    "D1",
-    "W1",
-  ];
+const SUPPORTED_TIMEFRAMES: AvailableTimeframe[] = [
+  "M1",
+  "M2",
+  "M3",
+  "M5",
+  "M10",
+  "M15",
+  "M30",
+  "H1",
+  "H2",
+  "H4",
+  "H8",
+  "H12",
+  "D1",
+  "W1",
+];
 
 // Strumento disponibile in modalità fallback.
-const FALLBACK_SYMBOLS:
-  MarketSymbolInformation[] = [
-    {
-      symbol: "EURUSD",
-      native_timeframe_count: 1,
-      stored_candle_count: 0,
-      model_enabled: true,
-    },
-  ];
+const FALLBACK_SYMBOLS: MarketSymbolInformation[] = [
+  {
+    symbol: "EURUSD",
+    native_timeframe_count: 1,
+    stored_candle_count: 0,
+    model_enabled: true,
+  },
+];
 
-// Rappresenta i parametri URL della pagina.
+// Parametri URL della pagina.
 type HomePageProps = {
   searchParams: Promise<{
-    symbol?:
-      | string
-      | string[];
-    timeframe?:
-      | string
-      | string[];
+    symbol?: string | string[];
+    timeframe?: string | string[];
   }>;
 };
 
-/**
- * Restituisce l'etichetta grafica del timeframe.
- */
+// Restituisce l'etichetta grafica del timeframe.
 function getTimeframeLabel(
   timeframe: AvailableTimeframe
 ): string {
-  const labels: Record<
-    AvailableTimeframe,
-    string
-  > = {
+  const labels: Record<AvailableTimeframe, string> = {
     M1: "1m",
     M2: "2m",
     M3: "3m",
@@ -111,21 +99,14 @@ function getTimeframeLabel(
     W1: "1W",
   };
 
-  return labels[
-    timeframe
-  ];
+  return labels[timeframe];
 }
 
-/**
- * Restituisce la durata del timeframe in minuti.
- */
+// Restituisce la durata del timeframe in minuti.
 function getTimeframeMinutes(
   timeframe: AvailableTimeframe
 ): number {
-  const minutes: Record<
-    AvailableTimeframe,
-    number
-  > = {
+  const minutes: Record<AvailableTimeframe, number> = {
     M1: 1,
     M2: 2,
     M3: 3,
@@ -142,82 +123,49 @@ function getTimeframeMinutes(
     W1: 10080,
   };
 
-  return minutes[
-    timeframe
-  ];
+  return minutes[timeframe];
 }
 
-/**
- * Crea il catalogo timeframe di fallback.
- */
-function createFallbackTimeframes():
-  TimeframeInformation[] {
-  return SUPPORTED_TIMEFRAMES.map(
-    (timeframe) => ({
-      code: timeframe,
-      label:
-        getTimeframeLabel(
-          timeframe
-        ),
-      minutes:
-        getTimeframeMinutes(
-          timeframe
-        ),
-      available:
-        timeframe === "M15",
-      native:
-        timeframe === "M15",
-      model_enabled:
-        timeframe === "M15",
-      source_timeframe:
-        timeframe === "M15"
-          ? "M15"
-          : null,
-      stored_candle_count: 0,
-      reason:
-        timeframe === "M15"
-          ? null
-          : "Disponibilità non verificabile senza FastAPI.",
-    })
-  );
+// Crea il catalogo timeframe usato senza FastAPI.
+function createFallbackTimeframes(): TimeframeInformation[] {
+  return SUPPORTED_TIMEFRAMES.map((timeframe) => ({
+    code: timeframe,
+    label: getTimeframeLabel(timeframe),
+    minutes: getTimeframeMinutes(timeframe),
+    available: timeframe === "M15",
+    native: timeframe === "M15",
+    model_enabled: timeframe === "M15",
+    source_timeframe:
+      timeframe === "M15"
+        ? "M15"
+        : null,
+    stored_candle_count: 0,
+    reason:
+      timeframe === "M15"
+        ? null
+        : "Disponibilità non verificabile senza FastAPI.",
+  }));
 }
 
-/**
- * Recupera il primo valore di un parametro URL.
- */
+// Recupera il primo valore di un parametro URL.
 function readSearchParameter(
-  value:
-    | string
-    | string[]
-    | undefined
+  value: string | string[] | undefined
 ): string | undefined {
-  if (
-    Array.isArray(value)
-  ) {
+  if (Array.isArray(value)) {
     return value[0];
   }
 
   return value;
 }
 
-/**
- * Normalizza il simbolo richiesto.
- */
+// Normalizza il simbolo richiesto.
 function normalizeRequestedSymbol(
-  value:
-    | string
-    | string[]
-    | undefined
+  value: string | string[] | undefined
 ): string {
   const selectedValue =
-    readSearchParameter(
-      value
-    );
+    readSearchParameter(value);
 
-  if (
-    selectedValue ===
-    undefined
-  ) {
+  if (selectedValue === undefined) {
     return "EURUSD";
   }
 
@@ -226,15 +174,10 @@ function normalizeRequestedSymbol(
       .trim()
       .toUpperCase();
 
-  return (
-    normalizedValue ||
-    "EURUSD"
-  );
+  return normalizedValue || "EURUSD";
 }
 
-/**
- * Verifica un codice timeframe.
- */
+// Verifica che il timeframe sia supportato.
 function isSupportedTimeframe(
   value: string
 ): value is AvailableTimeframe {
@@ -243,24 +186,14 @@ function isSupportedTimeframe(
   );
 }
 
-/**
- * Recupera il timeframe richiesto.
- */
+// Recupera il timeframe richiesto.
 function readRequestedTimeframe(
-  value:
-    | string
-    | string[]
-    | undefined
+  value: string | string[] | undefined
 ): AvailableTimeframe {
   const selectedValue =
-    readSearchParameter(
-      value
-    );
+    readSearchParameter(value);
 
-  if (
-    selectedValue ===
-    undefined
-  ) {
+  if (selectedValue === undefined) {
     return "M15";
   }
 
@@ -269,20 +202,14 @@ function readRequestedTimeframe(
       .trim()
       .toUpperCase();
 
-  if (
-    !isSupportedTimeframe(
-      normalizedValue
-    )
-  ) {
+  if (!isSupportedTimeframe(normalizedValue)) {
     return "M15";
   }
 
   return normalizedValue;
 }
 
-/**
- * Seleziona uno strumento disponibile.
- */
+// Seleziona uno strumento realmente disponibile.
 function selectAvailableSymbol(
   requestedSymbol: string,
   symbols: MarketSymbolInformation[],
@@ -291,71 +218,48 @@ function selectAvailableSymbol(
   const requestedInformation =
     symbols.find(
       (item) =>
-        item.symbol ===
-        requestedSymbol
+        item.symbol === requestedSymbol
     );
 
-  if (
-    requestedInformation !==
-    undefined
-  ) {
+  if (requestedInformation !== undefined) {
     return requestedInformation.symbol;
   }
 
   const defaultInformation =
     symbols.find(
       (item) =>
-        item.symbol ===
-        defaultSymbol
+        item.symbol === defaultSymbol
     );
 
-  if (
-    defaultInformation !==
-    undefined
-  ) {
+  if (defaultInformation !== undefined) {
     return defaultInformation.symbol;
   }
 
-  return (
-    symbols[0]?.symbol ??
-    defaultSymbol
-  );
+  return symbols[0]?.symbol ?? defaultSymbol;
 }
 
-/**
- * Seleziona un timeframe disponibile.
- */
+// Seleziona un timeframe realmente disponibile.
 function selectAvailableTimeframe(
-  requestedTimeframe:
-    AvailableTimeframe,
-  timeframes:
-    TimeframeInformation[]
+  requestedTimeframe: AvailableTimeframe,
+  timeframes: TimeframeInformation[]
 ): AvailableTimeframe {
   const requestedInformation =
     timeframes.find(
       (timeframe) =>
-        timeframe.code ===
-        requestedTimeframe
+        timeframe.code === requestedTimeframe
     );
 
-  if (
-    requestedInformation
-      ?.available === true
-  ) {
+  if (requestedInformation?.available === true) {
     return requestedTimeframe;
   }
 
   const m15Information =
     timeframes.find(
       (timeframe) =>
-        timeframe.code ===
-        "M15"
+        timeframe.code === "M15"
     );
 
-  if (
-    m15Information
-      ?.available === true
-  ) {
+  if (m15Information?.available === true) {
     return "M15";
   }
 
@@ -365,15 +269,50 @@ function selectAvailableTimeframe(
         timeframe.available
     );
 
-  return (
-    firstAvailable?.code ??
-    "M15"
-  );
+  return firstAvailable?.code ?? "M15";
 }
 
-/**
- * Visualizza il terminale AI Trading Indicator.
- */
+// Recupera l'ultima decisione disponibile.
+function getLatestDecision(
+  signals: SignalRecord[]
+): SignalRecord | null {
+  if (signals.length === 0) {
+    return null;
+  }
+
+  return [...signals].sort(
+    (
+      firstSignal,
+      secondSignal
+    ) =>
+      Date.parse(secondSignal.timestamp) -
+      Date.parse(firstSignal.timestamp)
+  )[0];
+}
+
+// Recupera l'ultima posizione aperta.
+function getCurrentOpenTrade(
+  trades: PaperTradeRecord[]
+): PaperTradeRecord | null {
+  const openTrades =
+    trades
+      .filter(
+        (trade) =>
+          trade.status === "OPEN"
+      )
+      .sort(
+        (
+          firstTrade,
+          secondTrade
+        ) =>
+          Date.parse(secondTrade.opened_at_utc) -
+          Date.parse(firstTrade.opened_at_utc)
+      );
+
+  return openTrades[0] ?? null;
+}
+
+// Visualizza il terminale AI Trading Indicator.
 export default async function Home({
   searchParams,
 }: HomePageProps) {
@@ -391,7 +330,7 @@ export default async function Home({
       resolvedSearchParams.timeframe
     );
 
-  // Inizializza strumenti e fallback.
+  // Inizializza strumenti e sorgente dati.
   let symbols =
     FALLBACK_SYMBOLS;
 
@@ -404,25 +343,21 @@ export default async function Home({
     | "UNAVAILABLE" =
     "UNAVAILABLE";
 
+  // Recupera gli strumenti disponibili.
   try {
     const symbolsResponse =
       await getSymbols();
 
-    if (
-      symbolsResponse
-        .symbols.length > 0
-    ) {
+    if (symbolsResponse.symbols.length > 0) {
       symbols =
         symbolsResponse.symbols;
     }
 
     defaultSymbol =
-      symbolsResponse
-        .default_symbol;
+      symbolsResponse.default_symbol;
 
     marketSource =
-      symbolsResponse
-        .source_type;
+      symbolsResponse.source_type;
   } catch (error) {
     console.error(
       "Impossibile caricare gli strumenti:",
@@ -430,7 +365,7 @@ export default async function Home({
     );
   }
 
-  // Seleziona uno strumento disponibile.
+  // Seleziona lo strumento disponibile.
   const selectedSymbol =
     selectAvailableSymbol(
       requestedSymbol,
@@ -438,13 +373,14 @@ export default async function Home({
       defaultSymbol
     );
 
-  // Carica i timeframe dello strumento.
+  // Inizializza il catalogo timeframe.
   let timeframes =
     createFallbackTimeframes();
 
   let symbolModelEnabled =
     false;
 
+  // Recupera i timeframe dello strumento.
   try {
     const timeframeResponse =
       await getTimeframes(
@@ -452,16 +388,13 @@ export default async function Home({
       );
 
     timeframes =
-      timeframeResponse
-        .timeframes;
+      timeframeResponse.timeframes;
 
     symbolModelEnabled =
-      timeframeResponse
-        .model_enabled;
+      timeframeResponse.model_enabled;
 
     marketSource =
-      timeframeResponse
-        .source_type;
+      timeframeResponse.source_type;
   } catch (error) {
     console.error(
       "Impossibile caricare i timeframe:",
@@ -469,6 +402,7 @@ export default async function Home({
     );
   }
 
+  // Seleziona il timeframe disponibile.
   const selectedTimeframe =
     selectAvailableTimeframe(
       requestedTimeframe,
@@ -478,19 +412,21 @@ export default async function Home({
   const selectedTimeframeInformation =
     timeframes.find(
       (timeframe) =>
-        timeframe.code ===
-        selectedTimeframe
+        timeframe.code === selectedTimeframe
     ) ?? null;
 
+  // Il modello è attivo solo su combinazioni validate.
   const selectedModelEnabled =
     symbolModelEnabled &&
     selectedTimeframeInformation
       ?.model_enabled === true;
 
   // Inizializza i dati della dashboard.
-  let online = false;
+  let online =
+    false;
 
-  let candles: Candle[] = [];
+  let candles: Candle[] =
+    [];
 
   let signals: SignalRecord[] =
     [];
@@ -505,8 +441,8 @@ export default async function Home({
     | LivePaperStatistics
     | null = null;
 
+  // Recupera i dati FastAPI in parallelo.
   try {
-    // Recupera in parallelo dati di mercato, segnali e trade.
     const [
       health,
       status,
@@ -533,31 +469,24 @@ export default async function Home({
       getStatistics(),
     ]);
 
-    // Determina lo stato generale del backend.
+    // Determina lo stato generale.
     online =
-      health.status ===
-        "healthy" &&
-      status.api_status ===
-        "ONLINE";
+      health.status === "healthy" &&
+      status.api_status === "ONLINE";
 
-    // Memorizza le candele ricevute.
+    // Memorizza i dati di mercato.
     candles =
       marketResponse.candles;
 
-    // Memorizza la sorgente effettiva.
     marketSource =
-      marketResponse
-        .source_type;
+      marketResponse.source_type;
 
-    // Mantiene i paper trade del simbolo selezionato.
+    // Memorizza i paper trade del simbolo.
     trades =
       tradesResponse.trades;
 
-    // Mostra segnali, esiti e statistiche solo
-    // se la combinazione possiede un modello valido.
-    if (
-      selectedModelEnabled
-    ) {
+    // Mostra i dati ML solo su combinazioni abilitate.
+    if (selectedModelEnabled) {
       signals =
         signalsResponse.signals;
 
@@ -565,8 +494,7 @@ export default async function Home({
         outcomesResponse.outcomes;
 
       statistics =
-        statisticsResponse
-          .statistics;
+        statisticsResponse.statistics;
     }
   } catch (error) {
     console.error(
@@ -574,65 +502,47 @@ export default async function Home({
       error
     );
 
-    online = false;
+    online =
+      false;
   }
 
-  // Recupera l'ultima decisione diagnostica disponibile.
-  const latestDecision =
-    selectedModelEnabled &&
-    signals.length > 0
-      ? [...signals].sort(
-          (
-            firstSignal,
-            secondSignal
-          ) =>
-            Date.parse(
-              secondSignal.timestamp
-            ) -
-            Date.parse(
-              firstSignal.timestamp
-            )
-        )[0]
-      : null;
-
-  // Mantiene i trade della combinazione visualizzata.
+  // Mantiene i trade della combinazione corrente.
   const selectedTrades =
     trades.filter(
       (trade) =>
-        trade.symbol ===
-          selectedSymbol &&
-        trade.timeframe ===
-          selectedTimeframe
+        trade.symbol === selectedSymbol &&
+        trade.timeframe === selectedTimeframe
     );
 
-  // Recupera l'eventuale posizione aperta.
+  // Recupera l'ultima decisione diagnostica.
+  const latestDecision =
+    selectedModelEnabled
+      ? getLatestDecision(signals)
+      : null;
+
+  // Recupera la posizione attualmente aperta.
   const currentTrade =
-    selectedTrades.find(
-      (trade) =>
-        trade.status ===
-        "OPEN"
-    ) ?? null;
+    getCurrentOpenTrade(
+      selectedTrades
+    );
 
   // Conta le decisioni diagnostiche.
   const longCount =
     signals.filter(
       (signal) =>
-        signal.signal ===
-        "LONG"
+        signal.signal === "LONG"
     ).length;
 
   const shortCount =
     signals.filter(
       (signal) =>
-        signal.signal ===
-        "SHORT"
+        signal.signal === "SHORT"
     ).length;
 
   const noTradeCount =
     signals.filter(
       (signal) =>
-        signal.signal ===
-        "NO_TRADE"
+        signal.signal === "NO_TRADE"
     ).length;
 
   // Descrive la sorgente del timeframe.
@@ -641,33 +551,25 @@ export default async function Home({
       ?.native === true
       ? "Dati nativi"
       : selectedTimeframeInformation
-            ?.source_timeframe !==
-          null &&
+            ?.source_timeframe !== null &&
         selectedTimeframeInformation
-            ?.source_timeframe !==
-          undefined
+            ?.source_timeframe !== undefined
         ? `Aggregato da ${selectedTimeframeInformation.source_timeframe}`
         : "Sorgente non disponibile";
 
   // Descrive lo storage.
   const marketSourceText =
-    marketSource ===
-    "SQLITE_MARKET_DATA"
+    marketSource === "SQLITE_MARKET_DATA"
       ? "Archivio live"
-      : marketSource ===
-          "CSV_FALLBACK"
+      : marketSource === "CSV_FALLBACK"
         ? "CSV demo"
         : "Dati non disponibili";
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <Header
-        symbol={
-          selectedSymbol
-        }
-        timeframe={
-          selectedTimeframe
-        }
+        symbol={selectedSymbol}
+        timeframe={selectedTimeframe}
         online={online}
       />
 
@@ -684,9 +586,7 @@ export default async function Home({
           </div>
 
           <SymbolSelector
-            selectedSymbol={
-              selectedSymbol
-            }
+            selectedSymbol={selectedSymbol}
             symbols={symbols}
           />
         </section>
@@ -740,25 +640,19 @@ export default async function Home({
         <CurrentTradeCard
           trade={currentTrade}
           symbol={selectedSymbol}
-        />
-
-        <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+        />        <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
           <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <h2 className="text-lg font-semibold">
                 {selectedSymbol}
-                {" Chart"}
+                {" "}
+                {selectedTimeframe}
               </h2>
 
               <p className="mt-1 text-xs text-slate-400">
-                {
-                  selectedTimeframeInformation
-                    ?.label ??
-                  selectedTimeframe
-                }
-                {
-                  " · UTC · Live Paper · "
-                }
+                {selectedTimeframeInformation?.label ??
+                  selectedTimeframe}
+                {" · UTC · Live Paper · "}
                 {candles.length}
                 {" candele"}
               </p>
@@ -771,12 +665,8 @@ export default async function Home({
             </div>
 
             <TimeframeSelector
-              selectedTimeframe={
-                selectedTimeframe
-              }
-              timeframes={
-                timeframes
-              }
+              selectedTimeframe={selectedTimeframe}
+              timeframes={timeframes}
             />
           </div>
 
@@ -793,68 +683,24 @@ export default async function Home({
 
           <MarketSnapshot
             candles={candles}
-            symbol={
-              selectedSymbol
-            }
-            timeframe={
-              selectedTimeframe
-            }
+            symbol={selectedSymbol}
+            timeframe={selectedTimeframe}
           />
 
           <ProjectionPanel
-            signal={
-              latestDecision
-            }
-            symbol={
-              selectedSymbol
-            }
-            timeframe={
-              selectedTimeframe
-            }
-          />
-
-          {candles.length > 0 ? (
-            <div className="relative">
-              <UnifiedMarketChart
-                candles={candles}
-                trades={
-                  selectedTrades
-                }
-                symbol={
-                  selectedSymbol
-                }
-                timeframe={
-                  selectedTimeframe
-                }
-              />
-            </div>
-          ) : (
-            <div className="flex h-[600px] items-center justify-center rounded-lg border border-dashed border-slate-700 text-slate-500">
-              Nessuna candela disponibile per{" "}
-              {selectedSymbol}
-              {" "}
-              {selectedTimeframe}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-xl border border-slate-800 bg-slate-900">
-          <div className="border-b border-slate-800 px-5 py-4">
-            <h2 className="text-lg font-semibold">
-              Operazioni paper
-            </h2>
-
-            <p className="mt-1 text-xs text-slate-500">
-              Aperture e chiusure persistenti collegate dallo stesso Trade ID.
-            </p>
-          </div>
-
-          <PaperTradesPanel
-            trades={
-              selectedTrades
-            }
+            signal={latestDecision}
+            symbol={selectedSymbol}
+            timeframe={selectedTimeframe}
           />
         </section>
+
+        <TradeAnalysisWorkspace
+          key={`${selectedSymbol}:${selectedTimeframe}`}
+          candles={candles}
+          trades={selectedTrades}
+          symbol={selectedSymbol}
+          timeframe={selectedTimeframe}
+        />
 
         <section className="rounded-xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="mb-4 text-lg font-semibold">
@@ -862,9 +708,7 @@ export default async function Home({
           </h2>
 
           <StatisticsPanel
-            statistics={
-              statistics
-            }
+            statistics={statistics}
           />
         </section>
 
